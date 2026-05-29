@@ -341,14 +341,11 @@ const StudentDashboard: React.FC = () => {
     setStudentRequests(updated);
     localStorage.setItem('client_student_requests', JSON.stringify(updated));
 
-    // Push edit request to server on updates endpoint
+    // Push edit request to server on its dedicated PUT endpoint
     const updatedObj = updated.find((req: any) => req.id === editingRequest.id);
     if (updatedObj) {
       try {
-        await updatesApi.pushUpdate({
-          type: 'EDIT_REQUEST',
-          data: updatedObj
-        });
+        await dataApi.editRequest(editingRequest.id, updatedObj);
       } catch (err) {
         console.warn('Update push error:', err);
       }
@@ -363,12 +360,9 @@ const StudentDashboard: React.FC = () => {
     setStudentRequests(updated);
     localStorage.setItem('client_student_requests', JSON.stringify(updated));
 
-    // Push delete request to server so MongoDB removes it
+    // Push delete request to server on its dedicated DELETE endpoint
     try {
-      await updatesApi.pushUpdate({
-        type: 'DELETE_REQUEST',
-        data: { id: requestId }
-      });
+      await dataApi.deleteRequest(requestId);
     } catch (err) {
       console.warn('Delete push error:', err);
     }
@@ -467,7 +461,7 @@ const StudentDashboard: React.FC = () => {
         </div>
 
         {/* Dynamic Personalized Stats */}
-        <div className="mb-12 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        <div className="mb-12 grid grid-cols-2 gap-3 sm:gap-4">
           <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
             <div className="flex items-center justify-between sm:flex-col sm:items-start gap-2">
               <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-blue-50 text-blue-600">
@@ -479,25 +473,15 @@ const StudentDashboard: React.FC = () => {
               {studentRequests.filter(r => r.status !== 'resolved').length}
             </p>
           </div>
-          
+
           <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
             <div className="flex items-center justify-between sm:flex-col sm:items-start gap-2">
-              <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-brand-primary/10 text-brand-primary">
-                <ShieldCheck size={16} className="sm:w-5 sm:h-5" />
-              </div>
-              <h3 className="text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-wider leading-tight">Partners Net</h3>
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">{sortedVendors.length}</p>
-          </div>
-
-          <div className="col-span-2 sm:col-span-1 rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-sm border border-slate-100 flex sm:flex-col justify-between items-center sm:items-start">
-            <div className="flex items-center sm:flex-col sm:items-start gap-2.5">
               <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-amber-50 text-amber-600">
                 <MapPin size={16} className="sm:w-5 sm:h-5" />
               </div>
               <h3 className="text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-wider leading-tight">Campus Base</h3>
             </div>
-            <p className="text-lg sm:text-2xl font-black text-slate-950 capitalize truncate max-w-[150px] sm:max-w-none text-right sm:text-left mt-1">
+            <p className="text-lg sm:text-2xl font-black text-slate-950 capitalize mt-2">
               {studentCampus}
             </p>
           </div>
@@ -702,6 +686,7 @@ const StudentDashboard: React.FC = () => {
         </div>
 
         {/* Personalized & Filtered Vendors Section */}
+        {/* 
         <div>
           <div className="mb-8">
             <h2 className="text-2xl font-black text-slate-900">
@@ -721,7 +706,7 @@ const StudentDashboard: React.FC = () => {
                 transition={{ delay: idx * 0.1 }}
                 className="group relative flex flex-col overflow-hidden rounded-2xl sm:rounded-[2.5rem] bg-white shadow-xl shadow-slate-100 ring-1 ring-slate-100 transition-all hover:-translate-y-2 hover:shadow-2xl"
               >
-                {/* Vendor Info */}
+                // Vendor Info
                 <div className="flex flex-1 flex-col p-5 sm:p-8">
                   <div className="mb-2 sm:mb-4 flex items-start justify-between gap-1">
                     <div>
@@ -782,6 +767,7 @@ const StudentDashboard: React.FC = () => {
             ))}
           </div>
         </div>
+        */}
 
         {/* Technical coverage summary */}
         <div className="mt-20">
@@ -824,9 +810,11 @@ const StudentDashboard: React.FC = () => {
                   {loc.name}
                 </h4>
                 
+                {/* 
                 <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-slate-400">
                   {loc.vendors} Ready Vendors
                 </p>
+                */}
               </motion.div>
             ))}
           </div>

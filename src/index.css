@@ -11,6 +11,16 @@
   --color-accent: #34d399; /* Lighter Green accent */
   --color-bg-main: #f0fdf4; /* Very pale green background */
   --color-brand-slate: #064e3b; /* Deep green-slate for text */
+
+  --animate-swing: swing 1s ease-in-out;
+
+  @keyframes swing {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(15deg); }
+    40% { transform: rotate(-10deg); }
+    60% { transform: rotate(5deg); }
+    80% { transform: rotate(-5deg); }
+  }
 }
 
 @layer base {

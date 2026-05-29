@@ -113,6 +113,7 @@ const Profile: React.FC = () => {
               {/* Highlight pattern */}
               <div className="absolute top-0 inset-x-0 h-2 bg-linear-to-r from-brand-primary via-accent to-brand-primary" />
               
+              {/* Commented out the image component
               {user.role !== 'vendor' && (
                 <div className="relative group mt-4">
                   <div className="h-28 w-28 overflow-hidden rounded-full ring-4 ring-slate-50 border border-slate-200 shadow-inner">
@@ -132,6 +133,7 @@ const Profile: React.FC = () => {
                   </button>
                 </div>
               )}
+              */}
 
               <h2 className={`text-xl font-black text-slate-900 leading-tight ${user.role === 'vendor' ? 'mt-6' : 'mt-4'}`}>
                 {displayName || 'Campus Trader'}
@@ -197,7 +199,7 @@ const Profile: React.FC = () => {
               )}
             </AnimatePresence>
 
-            {/* Quick Stats or Community metrics */}
+            {/* Commented out the rating component
             {user.role !== 'vendor' && (
               <div className="rounded-[2.5rem] bg-slate-900 text-white p-6 shadow-md relative overflow-hidden">
                 <Compass className="absolute -right-6 -bottom-6 text-white/5" size={130} />
@@ -210,6 +212,7 @@ const Profile: React.FC = () => {
                 </div>
               </div>
             )}
+            */}
 
           </div>
 

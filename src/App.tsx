@@ -18,9 +18,10 @@ import FavoritesSheet from './components/ui/FavoritesSheet';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  allowedRoles?: ('student' | 'vendor')[];
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
   const { user, loading } = useAuthStore();
   
   if (loading) {
@@ -28,7 +29,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
   
   if (!user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (allowedRoles && !allowedRoles.includes(user.role as any)) {
+    return <Navigate to="/dashboard" replace />;
   }
   
   return <>{children}</>;
@@ -58,21 +63,33 @@ export default function App() {
               animate={{ opacity: 1 }}
               transition={{ duration: 1, ease: "easeOut" }}
             >
-              {/* SINGLE GLOBALLY RESOLVED NAVBAR AT THE TOP */}
               <Navbar />
-              
               <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/categories" element={<Categories />} />
-                  <Route path="/students" element={<Students />} />
-                  <Route path="/requests" element={<Requests />} />
+                  <Route 
+                    path="/students" 
+                    element={
+                      <ProtectedRoute allowedRoles={['vendor']}>
+                        <Students />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/requests" 
+                    element={
+                      <ProtectedRoute allowedRoles={['vendor']}>
+                        <Requests />
+                      </ProtectedRoute>
+                    } 
+                  />
                   <Route path="/login" element={<Auth />} />
                   <Route path="/register" element={<Auth />} />
                   <Route 
                     path="/dashboard" 
                     element={
-                      <ProtectedRoute>
+                      <ProtectedRoute allowedRoles={['student', 'vendor']}>
                         <DashboardRouter />
                       </ProtectedRoute>
                     } 
@@ -80,7 +97,7 @@ export default function App() {
                   <Route 
                     path="/create-request" 
                     element={
-                      <ProtectedRoute>
+                      <ProtectedRoute allowedRoles={['student']}>
                         <CreateRequest />
                       </ProtectedRoute>
                     } 
@@ -88,7 +105,7 @@ export default function App() {
                   <Route 
                     path="/submitted-offers" 
                     element={
-                      <ProtectedRoute>
+                      <ProtectedRoute allowedRoles={['vendor']}>
                         <SubmittedOffers />
                       </ProtectedRoute>
                     } 
@@ -96,7 +113,7 @@ export default function App() {
                   <Route 
                     path="/profile" 
                     element={
-                      <ProtectedRoute>
+                      <ProtectedRoute allowedRoles={['student', 'vendor']}>
                         <Profile />
                       </ProtectedRoute>
                     } 

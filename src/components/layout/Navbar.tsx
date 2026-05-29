@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, Search, User as UserIcon, Menu, X, ChevronRight, Users, Tag, Store, Briefcase } from 'lucide-react';
+import { ShoppingBag, Search, User as UserIcon, Menu, X, ChevronRight, Users, Tag, Store, Briefcase, Bell } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useNotificationStore } from '../../store/notificationStore';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { Logo } from '../ui/Logo';
@@ -9,6 +10,31 @@ import { Logo } from '../ui/Logo';
 const Navbar: React.FC = () => {
   const { user, setUser, logout } = useAuthStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+
+  const { notifications, syncNotifications, markAsRead, markAllAsRead, clearAll } = useNotificationStore();
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  useEffect(() => {
+    if (!user) return;
+
+    const runSync = () => {
+      try {
+        const localRequests = localStorage.getItem('client_student_requests');
+        const requestsList = localRequests ? JSON.parse(localRequests) : [];
+        const localProposals = localStorage.getItem('client_shared_proposals');
+        const proposalsList = localProposals ? JSON.parse(localProposals) : [];
+        syncNotifications(user, requestsList, proposalsList);
+      } catch (err) {
+        console.error('Failed to run notification sync inside Navbar:', err);
+      }
+    };
+
+    runSync();
+
+    const interval = setInterval(runSync, 4000);
+    return () => clearInterval(interval);
+  }, [user, syncNotifications]);
 
   const handleLogin = () => {
     // Mock login
@@ -85,9 +111,113 @@ const Navbar: React.FC = () => {
 
             {user ? (
               <div className="flex items-center gap-3 sm:gap-6">
+                {/* Notifications Bell Button & Dropdown */}
+                <div className="relative">
+                  <button
+                    onClick={() => setIsNotifOpen((prev) => !prev)}
+                    className="relative flex h-10 w-10 items-center justify-center rounded-full bg-slate-100/80 text-slate-600 transition-all hover:bg-slate-200/80 hover:text-slate-900 hover:animate-swing active:scale-95 focus:outline-none"
+                    aria-label="View notifications"
+                  >
+                    <Bell size={18} className={unreadCount > 0 ? "animate-swing" : ""} />
+                    {unreadCount > 0 && (
+                      <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black leading-none text-white ring-2 ring-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <AnimatePresence>
+                    {isNotifOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsNotifOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-[-4.5rem] sm:right-0 mt-3 z-50 w-80 sm:w-[24rem] origin-top-right rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl ring-1 ring-black/5"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <h4 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
+                              <Bell size={16} className="text-brand-primary animate-pulse" /> Notifications
+                            </h4>
+                            <div className="flex gap-2">
+                              {unreadCount > 0 && (
+                                <button
+                                  onClick={() => markAllAsRead()}
+                                  className="text-[10px] font-black uppercase tracking-wider text-brand-primary hover:underline cursor-pointer"
+                                >
+                                  Mark read
+                                </button>
+                              )}
+                              {notifications.length > 0 && (
+                                <button
+                                  onClick={() => clearAll()}
+                                  className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 max-h-72 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                            {notifications.length === 0 ? (
+                              <div className="py-8 text-center text-slate-400">
+                                <p className="text-xs font-bold font-mono">No notifications yet</p>
+                                <p className="text-[10px] text-slate-400 mt-1 leading-normal px-2">
+                                  Requests placed on campus or matches to your needs will show up here instantly.
+                                </p>
+                              </div>
+                            ) : (
+                              notifications.map((notif) => (
+                                <Link
+                                  key={notif.id}
+                                  to={notif.linkTo || '#'}
+                                  onClick={() => {
+                                    markAsRead(notif.id);
+                                    setIsNotifOpen(false);
+                                  }}
+                                  className={`flex items-start gap-3 rounded-2xl p-3 transition-colors ${
+                                    notif.read ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/70 hover:bg-slate-100/80 border-l-[3.5px] border-brand-primary'
+                                  }`}
+                                >
+                                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                                    notif.type === 'new_request' 
+                                      ? 'bg-blue-50 text-blue-600' 
+                                      : notif.type === 'new_offer' 
+                                        ? 'bg-emerald-50 text-emerald-600' 
+                                        : 'bg-slate-50 text-slate-500'
+                                  }`}>
+                                    {notif.type === 'new_request' ? <Tag size={14} /> : <Store size={14} />}
+                                  </div>
+                                  <div className="min-w-0 flex-1 text-left">
+                                    <p className={`text-xs leading-snug ${notif.read ? 'font-bold text-slate-700' : 'font-extrabold text-slate-900'}`}>
+                                      {notif.title}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5 leading-snug break-words">
+                                      {notif.message}
+                                    </p>
+                                    <span className="text-[8px] font-mono text-slate-400 block mt-1">
+                                      {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                </Link>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <div className="flex items-center gap-2 sm:gap-3">
                   <div className="hidden text-right md:block">
-                    <p className="text-xs font-bold text-slate-900">{user.displayName || 'Student'}</p>
+                    <p className="text-xs font-bold text-slate-900 whitespace-nowrap">{user.displayName || 'Student'}</p>
                     <p className="text-[10px] text-slate-400 cursor-pointer hover:text-brand-primary" onClick={handleLogout}>Sign Out</p>
                   </div>
                   <Link to="/profile" className="h-8 w-8 overflow-hidden rounded-full border-2 border-white bg-green-100 shadow-sm sm:h-9 sm:w-9">

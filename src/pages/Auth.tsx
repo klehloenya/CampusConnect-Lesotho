@@ -332,7 +332,7 @@ const Auth: React.FC = () => {
               CampusConnect Lesotho
             </p>
             <p className="mt-2 text-sm font-medium text-slate-500">
-              {mode === 'login' ? 'Login to your student account' : 'Start buying and selling today'}
+              {mode === 'login' ? 'Login to your account' : 'Start buying and selling today'}
             </p>
           </div>
 
