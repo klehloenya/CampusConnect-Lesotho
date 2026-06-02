@@ -3,7 +3,7 @@ import axios from 'axios';
 // Using relative paths to talk to our local Express proxy
 // This avoids CORS issues because the browser talks to the same origin
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://kkgq3q14-8000.inc1.devtunnels.ms/',
   headers: {
     'Content-Type': 'application/json',
   },
