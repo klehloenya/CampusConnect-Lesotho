@@ -210,7 +210,7 @@ const StudentDashboard: React.FC = () => {
     loadVendors();
     loadStudentRequests();
     loadSharedProposals();
-    syncWithServerDatabase();
+    // syncWithServerDatabase();
   }, [user]);
 
   const loadSharedProposals = () => {
@@ -289,12 +289,60 @@ const StudentDashboard: React.FC = () => {
     setSelectedRequestForOffers(null); // Close proposals list drawer
   };
 
-  const loadStudentRequests = () => {
-    const local = localStorage.getItem('client_student_requests');
-    let parsedLocal = local ? JSON.parse(local) : [];
+ const loadStudentRequests = async () => {
+  try {
+    const response = await dataApi.getMyRequests();
 
-    setStudentRequests(parsedLocal);
-  };
+    // Normalize backend response
+    const requestsData =
+      response.data?.requests ??
+      response.data ??
+      [];
+
+    let finalRequests = [];
+
+    if (Array.isArray(requestsData)) {
+      finalRequests = requestsData;
+    } else {
+      console.warn('Unexpected requests format:', response.data);
+      finalRequests = [];
+    }
+
+    // Merge with localStorage (local edits still matter in your app)
+    const local = localStorage.getItem('client_student_requests');
+    const localRequests = local ? JSON.parse(local) : [];
+
+    // Server is source of truth, but preserve unsynced local items
+    const merged = [...finalRequests];
+
+    localRequests.forEach((localReq: any) => {
+      const exists = merged.find((r: any) => r.id === localReq.id);
+      if (!exists) {
+        merged.push(localReq);
+      }
+    });
+
+    setStudentRequests(merged);
+
+    // Sync back to cache
+    localStorage.setItem(
+      'client_student_requests',
+      JSON.stringify(merged)
+    );
+
+  } catch (err) {
+    console.error('Failed to fetch requests:', err);
+
+    // fallback to localStorage only
+    const local = localStorage.getItem('client_student_requests');
+
+    if (local) {
+      setStudentRequests(JSON.parse(local));
+    } else {
+      setStudentRequests([]);
+    }
+  }
+};
 
   const handleToggleRequestStatus = (requestId: string) => {
     const updated = studentRequests.map(req => {
@@ -319,77 +367,113 @@ const StudentDashboard: React.FC = () => {
     setEditBudget(req.budget || '');
   };
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingRequest) return;
+ const handleSaveEdit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    const updated = studentRequests.map((req: any) => {
-      if (req.id === editingRequest.id) {
-        return {
-          ...req,
-          item: editTitle,
-          title: editTitle, // for compatibility
-          description: editDescription,
-          category: editCategory,
-          budget: editBudget,
-          timestamp: new Date().toISOString()
-        };
-      }
-      return req;
+  if (!editingRequest) return;
+
+  const updated = studentRequests.map((req: any) => {
+    if (req.id === editingRequest.id) {
+      return {
+        ...req,
+        item: editTitle,
+        title: editTitle,
+        description: editDescription,
+        category: editCategory,
+        budget: editBudget,
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    return req;
+  });
+
+  setStudentRequests(updated);
+
+  localStorage.setItem(
+    'client_student_requests',
+    JSON.stringify(updated)
+  );
+
+  try {
+    await dataApi.updateRequest(editingRequest.id, {
+      item: editTitle,
+      description: editDescription,
+      category: editCategory,
+      budget: editBudget
     });
+  } catch (err) {
+    console.error('Failed to update request:', err);
+  }
+
+  setEditingRequest(null);
+};
+
+const handleDeleteRequest = async (requestId: string) => {
+  try {
+
+    // Delete from backend first
+    await dataApi.deleteRequest(requestId);
+
+    // Update frontend state
+    const updated = studentRequests.filter(
+      (req) => req.id !== requestId
+    );
 
     setStudentRequests(updated);
-    localStorage.setItem('client_student_requests', JSON.stringify(updated));
 
-    // Push edit request to server on updates endpoint
-    const updatedObj = updated.find((req: any) => req.id === editingRequest.id);
-    if (updatedObj) {
-      try {
-        await updatesApi.pushUpdate({
-          type: 'EDIT_REQUEST',
-          data: updatedObj
-        });
-      } catch (err) {
-        console.warn('Update push error:', err);
-      }
-    }
+    // Sync local cache
+    localStorage.setItem(
+      'client_student_requests',
+      JSON.stringify(updated)
+    );
 
-    setEditingRequest(null);
-    syncWithServerDatabase(updated);
-  };
+  } catch (err) {
+    console.error('Failed to delete request:', err);
+  }
+};
 
-  const handleDeleteRequest = async (requestId: string) => {
-    const updated = studentRequests.filter(req => req.id !== requestId);
-    setStudentRequests(updated);
-    localStorage.setItem('client_student_requests', JSON.stringify(updated));
+ const loadVendors = async () => {
+  try {
+    setLoading(true);
 
-    // Push delete request to server so MongoDB removes it
-    try {
-      await updatesApi.pushUpdate({
-        type: 'DELETE_REQUEST',
-        data: { id: requestId }
-      });
-    } catch (err) {
-      console.warn('Delete push error:', err);
-    }
+    const response = await dataApi.getVendors();
 
-    syncWithServerDatabase(updated);
-  };
+    // Normalize backend response (handles both [] and { vendors: [] })
+    const vendorsData =
+      response.data?.vendors ??
+      response.data ??
+      [];
 
-  const loadVendors = async () => {
-    try {
-      setLoading(true);
-      const response = await dataApi.getVendors();
-      if (response.data && Array.isArray(response.data)) {
-        setVendors(response.data.length > 0 ? response.data : MOCK_VENDORS);
-      }
-    } catch (err) {
-      console.error('Failed to fetch vendors, using mocks:', err);
+    if (Array.isArray(vendorsData)) {
+      setVendors(vendorsData);
+
+      // Optional cache sync (keeps UI fast on reloads)
+      localStorage.setItem(
+        'client_vendors',
+        JSON.stringify(vendorsData)
+      );
+    } else {
+      console.warn('Unexpected vendors format:', response.data);
       setVendors(MOCK_VENDORS);
-    } finally {
-      setLoading(false);
     }
-  };
+
+  } catch (err) {
+    console.error('Failed to fetch vendors, using mocks:', err);
+
+    // fallback chain: localStorage → mocks
+    const cached = localStorage.getItem('client_vendors');
+
+    if (cached) {
+      setVendors(JSON.parse(cached));
+    } else {
+      setVendors(MOCK_VENDORS);
+    }
+
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleToggleFavorite = (vendor: any) => {
     toggleFavorite({

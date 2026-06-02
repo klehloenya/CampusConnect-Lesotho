@@ -92,7 +92,7 @@ const Auth: React.FC = () => {
         email: data.email || email,
         displayName: data.displayName || data.name || displayName || email.split('@')[0],
         photoURL: data.photoURL || null,
-        role: data.role || role
+        role: data.role
       };
       
       const authState = useAuthStore.getState();

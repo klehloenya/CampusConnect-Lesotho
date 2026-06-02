@@ -16,6 +16,7 @@ import {
   Compass
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { userApi } from '../lib/api';
 
 const LESOTHO_AVATARS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -41,30 +42,50 @@ const Profile: React.FC = () => {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
+ useEffect(() => {
+  const loadProfile = async () => {
+    try {
+      const response = await userApi.getMe();
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
+      const profile = response.data;
 
-    const updatedUser = {
-      ...user,
-      displayName,
-      photoURL,
+      setDisplayName(profile.username || '');
+      setEmail(profile.email || '');
+      setSchool(profile.school || '');
+      setPhone(profile.phone || '');
+      setBio(profile.bio || '');
+
+    } catch (err) {
+      console.error('Failed to load profile:', err);
+    }
+  };
+
+  loadProfile();
+}, []);
+
+const handleSave = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  try {
+    const response = await userApi.updateMe({
+      username: displayName,
       school,
-    };
+      phone,
+      bio
+    });
 
-    setUser(updatedUser);
-    localStorage.setItem(`profile_phone_${user.uid}`, phone);
-    localStorage.setItem(`profile_bio_${user.uid}`, bio);
+    setUser(response.data);
 
     setSaveSuccess(true);
+
     setTimeout(() => {
       setSaveSuccess(false);
     }, 3000);
-  };
+
+  } catch (err) {
+    console.error('Failed to update profile:', err);
+  }
+};
 
   const handleSelectAvatar = (url: string) => {
     setPhotoURL(url);

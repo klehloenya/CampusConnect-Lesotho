@@ -131,43 +131,43 @@ const VendorDashboard: React.FC = () => {
       const requests = overrideRequests || (localRequestsRaw ? JSON.parse(localRequestsRaw) : []);
       const proposalsList = overrideProposals || (localProposalsRaw ? JSON.parse(localProposalsRaw) : []);
 
-      const response = await dataApi.sync({
-        requests,
-        proposals: proposalsList
-      });
+      // const response = await dataApi.sync({
+      //   requests,
+      //   proposals: proposalsList
+      // });
 
-      if (response && response.data) {
-        const serverRequests = response.data.requests || [];
-        const serverProposals = response.data.proposals || [];
+      // if (response && response.data) {
+      //   const serverRequests = response.data.requests || [];
+      //   const serverProposals = response.data.proposals || [];
 
-        // Merge requests, server-side is authority
-        const mergedRequests = [...requests];
-        serverRequests.forEach((sr: any) => {
-          const idx = mergedRequests.findIndex(r => r.id === sr.id);
-          if (idx === -1) {
-            mergedRequests.push(sr);
-          } else {
-            mergedRequests[idx] = { ...mergedRequests[idx], ...sr };
-          }
-        });
+      //   // Merge requests, server-side is authority
+      //   const mergedRequests = [...requests];
+      //   serverRequests.forEach((sr: any) => {
+      //     const idx = mergedRequests.findIndex(r => r.id === sr.id);
+      //     if (idx === -1) {
+      //       mergedRequests.push(sr);
+      //     } else {
+      //       mergedRequests[idx] = { ...mergedRequests[idx], ...sr };
+      //     }
+      //   });
 
-        // Merge proposals
-        const mergedProposals = [...proposalsList];
-        serverProposals.forEach((sp: any) => {
-          const idx = mergedProposals.findIndex(p => p.id === sp.id);
-          if (idx === -1) {
-            mergedProposals.push(sp);
-          } else {
-            mergedProposals[idx] = { ...mergedProposals[idx], ...sp };
-          }
-        });
+      //   // Merge proposals
+      //   const mergedProposals = [...proposalsList];
+      //   serverProposals.forEach((sp: any) => {
+      //     const idx = mergedProposals.findIndex(p => p.id === sp.id);
+      //     if (idx === -1) {
+      //       mergedProposals.push(sp);
+      //     } else {
+      //       mergedProposals[idx] = { ...mergedProposals[idx], ...sp };
+      //     }
+      //   });
 
-        localStorage.setItem('client_student_requests', JSON.stringify(mergedRequests));
-        localStorage.setItem('client_shared_proposals', JSON.stringify(mergedProposals));
+      //   localStorage.setItem('client_student_requests', JSON.stringify(mergedRequests));
+      //   localStorage.setItem('client_shared_proposals', JSON.stringify(mergedProposals));
 
-        setStudentRequests(mergedRequests);
-        setProposals(mergedProposals);
-      }
+      //   setStudentRequests(mergedRequests);
+      //   setProposals(mergedProposals);
+      // }
     } catch (err) {
       console.warn("Real-time cloud database sync skipped, offline mode:", err);
     }
@@ -187,12 +187,12 @@ const VendorDashboard: React.FC = () => {
     localStorage.setItem('client_shared_proposals', JSON.stringify(proposals));
   }, [proposals, user]);
 
-  const loadStudentRequests = () => {
-    const local = localStorage.getItem('client_student_requests');
-    if (local) {
-      setStudentRequests(JSON.parse(local));
-    } else {
-      setStudentRequests([]);
+  const loadStudentRequests = async () => {
+    try {
+      const response = await dataApi.getRequests();
+      setStudentRequests(response.data);
+    } catch (err) {
+      console.error("Failed to load requests:", err);
     }
   };
 
@@ -245,22 +245,17 @@ const VendorDashboard: React.FC = () => {
     if (!selectedReqForProposal) return;
 
     const newProp = {
-      id: `prop-usr-${Date.now()}`,
-      requestId: selectedReqForProposal.id,
-      requestTitle: selectedReqForProposal.item,
-      studentName: selectedReqForProposal.student,
-      proposedPrice: parseFloat(proposalPrice) || 0,
+      request_id: selectedReqForProposal.id,
+      price: parseFloat(proposalPrice),
       message: proposalMsg,
-      vendorName: user?.displayName || 'Roma Tech Hub',
-      vendorPhone: '+266 5890 1234',
-      vendorRating: 4.9,
-      status: 'pending',
-      timestamp: new Date().toISOString()
+      vendor_name: user?.displayName || 'Roma Tech Hub',
+      vendor_phone: '+266 5890 1234',
+      vendor_rating: 4.9
     };
 
     const updated = [newProp, ...proposals];
     setProposals(updated);
-    localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
+    dataApi.createProposal(newProp);
     syncWithServerDatabase(undefined, updated);
 
     setSelectedReqForProposal(null);
@@ -483,7 +478,7 @@ const VendorDashboard: React.FC = () => {
             </div>
 
             {/* SEND PROPOSALS LIST */}
-            <div className="border border-slate-100/80 bg-white rounded-[2.5rem] p-6 sm:p-8 shadow-md">
+            <div className="border border-red-100/80 bg-white rounded-[2.5rem] p-6 sm:p-8 shadow-md">
               <h2 className="text-xl font-black text-slate-900 mb-2">
                 My Sales <span className="text-brand-primary">Pitches & Offers</span>
               </h2>
