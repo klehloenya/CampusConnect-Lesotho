@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { dataApi } from '../lib/api';
+import { updatesApi, dataApi } from '../lib/api';
 
 const CATEGORIES = [
   'Electronics',
@@ -29,6 +30,8 @@ const CreateRequest: React.FC = () => {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [budget, setBudget] = useState('');
+  // urgency completely commented out / removed as requested
+  // const [urgency, setUrgency] = useState('medium');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -46,19 +49,70 @@ const CreateRequest: React.FC = () => {
     setError('');
     
     try {
-      await dataApi.createRequest({
+      // Create the request object
+      const newRequest = {
         title,
         description,
         category,
         budget,
+        // urgency: 'medium', // urgency removed as requested
         timestamp: new Date().toISOString(),
-      });
+      };
 
+      // Try to push request update to our backend (which safely proxies to partner's backend)
+      try {
+        await updatesApi.pushUpdate({
+          type: 'NEW_REQUEST',
+          data: newRequest
+        });
+      } catch (apiErr) {
+        console.warn('Backend proxy update skipped or failed, using local fallback:', apiErr);
+      }
+
+      // Format for local storage using the common Requests schema
+      const getCampusFromSchool = (schoolName: string | undefined | null): string => {
+        if (!schoolName) return 'Roma';
+        const s = schoolName.toUpperCase();
+        if (s.includes('NUL') || s.includes('LESOTHO') || s.includes('ROMA')) return 'Roma';
+        if (s.includes('LUCT') || s.includes('LIMKOKWING') || s.includes('CAS') || s.includes('ACCOUNTING') || s.includes('LEROTHOLI') || s.includes('MASERU')) return 'Maseru';
+        if (s.includes('LCE') || s.includes('EDUCATION') || s.includes('LERIBE')) return 'Leribe';
+        return 'Roma';
+      };
+
+      const localNewRequest = {
+        id: `req-local-${Date.now()}`,
+        item: title,
+        category,
+        budget,
+        description,
+        student: user?.displayName || 'Demo Student',
+        studentUid: user?.uid || 'demo-uid',
+        campus: user?.school ? getCampusFromSchool(user.school) : 'Roma',
+        postedAt: 'Just now',
+        status: 'open',
+        timestamp: new Date().toISOString()
+      };
+
+      const existing = localStorage.getItem('client_student_requests');
+      const reqList = existing ? JSON.parse(existing) : [];
+      reqList.unshift(localNewRequest);
+      localStorage.setItem('client_student_requests', JSON.stringify(reqList));
+
+      // Push to the server's shared memory database so partner can view it instantly!
+      try {
+        await dataApi.sync({
+          requests: [localNewRequest]
+        });
+      } catch (syncErr) {
+        console.warn('Real-time sync to backend skipped:', syncErr);
+      }
+
+      setLoading(false);
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 1500);
+      setTimeout(() => navigate('/dashboard'), 1500); // Redirect to student dashboard
     } catch (err: any) {
       console.error('Submit error:', err);
-      const errorMessage = err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to post request';
+      const errorMessage = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to post request';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -201,7 +255,7 @@ const CreateRequest: React.FC = () => {
           <button
             disabled={loading || !title}
             type="submit"
-            className="group flex-2 flex items-center justify-center gap-3 rounded-3xl bg-brand-primary py-5 text-base font-black text-white shadow-2xl shadow-green-900/10 transition-all hover:scale-[1.02] hover:bg-emerald-600 active:scale-95 disabled:opacity-50"
+            className="group flex-[2] flex items-center justify-center gap-3 rounded-3xl bg-brand-primary py-5 text-base font-black text-white shadow-2xl shadow-green-900/10 transition-all hover:scale-[1.02] hover:bg-emerald-600 active:scale-95 disabled:opacity-50"
           >
             {loading ? 'Posting...' : 'Confirm Post'}
             <ArrowRight size={20} className="transition-transform group-hover:translate-x-1" />

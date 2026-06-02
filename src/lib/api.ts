@@ -35,10 +35,21 @@ export const dataApi = {
   getCategories: () => api.get('/categories'),
   getVendors: () => api.get('/vendors'),
   sync: (data?: any) => data ? api.post('/sync', data) : api.get('/sync'),
+  editRequest: (id: string, data: any) => api.put(`/requests/${id}`, data),
+  deleteRequest: (id: string) => api.delete(`/requests/${id}`),
+  getProposals: () => api.get('/proposals'),
+  createProposal: (data: any) => api.post('/proposals', data),
+  editProposal: (id: string, data: any) => api.put(`/proposals/${id}`, data),
+  deleteProposal: (id: string) => api.delete(`/proposals/${id}`),
+  createRequest: (data: any) => api.post('/updates', { type: 'NEW_REQUEST', data }),
 };
 
 export const updatesApi = {
   pushUpdate: (data: any) => api.post('/updates', data),
+  createRequest: (data: any) => api.post('/updates', { type: 'NEW_REQUEST', data }),
 };
+
+// Also attach to the default export api instance for maximum defensive compatibility
+(api as any).createRequest = (data: any) => api.post('/updates', { type: 'NEW_REQUEST', data });
 
 export default api;

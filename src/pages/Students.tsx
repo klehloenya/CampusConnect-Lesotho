@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, MapPin, GraduationCap, Star, ShieldCheck, Mail, MessageSquare, X, ArrowRight } from 'lucide-react';
+import { User, MapPin, GraduationCap, ShieldCheck, X, ArrowRight, ClipboardList } from 'lucide-react';
 
 import { dataApi } from '../lib/api';
 
@@ -11,9 +12,7 @@ const MOCK_STUDENTS = [
     major: 'Computer Science',
     campus: 'Roma',
     year: 'Year 3',
-    rating: 4.9,
     deals: 12,
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&q=80&w=200&h=200',
     bio: 'Looking for tech gear and CS textbooks. Fast responses.',
     verified: true,
     tags: ['Tech', 'Books']
@@ -24,9 +23,7 @@ const MOCK_STUDENTS = [
     major: 'Business Management',
     campus: 'Maseru',
     year: 'Year 2',
-    rating: 4.8,
     deals: 8,
-    avatar: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&q=80&w=200&h=200',
     bio: 'Selling hand-made accessories. Open to trades.',
     verified: true,
     tags: ['Fashion', 'Accessories']
@@ -37,9 +34,7 @@ const MOCK_STUDENTS = [
     major: 'Economics',
     campus: 'Roma',
     year: 'Year 4',
-    rating: 4.7,
     deals: 15,
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200&h=200',
     bio: 'Collector of vintage stationery. Serious buyers only.',
     verified: false,
     tags: ['Stationery', 'Vintage']
@@ -50,9 +45,7 @@ const MOCK_STUDENTS = [
     major: 'Nursing',
     campus: 'Maseru',
     year: 'Year 1',
-    rating: 4.9,
     deals: 5,
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200&h=200',
     bio: 'New on campus. Looking for nursing textbooks and gear.',
     verified: true,
     tags: ['Nursing', 'First Year']
@@ -63,6 +56,7 @@ const Students: React.FC = () => {
   const [students, setStudents] = useState<any[]>(MOCK_STUDENTS);
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -95,9 +89,9 @@ const Students: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedStudent(null)}
-              className="fixed inset-0 z-100 bg-slate-950/40 backdrop-blur-md"
+              className="fixed inset-0 z-[100] bg-slate-950/40 backdrop-blur-md"
             />
-            <div className="fixed inset-0 z-101 flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[101] flex items-center justify-center p-4">
               <motion.div
                 layoutId={`student-${selectedStudent.id}`}
                 initial={{ scale: 0.9, opacity: 0, rotateX: -15, y: 30 }}
@@ -155,11 +149,14 @@ const Students: React.FC = () => {
                   </div>
 
                   <div className="flex flex-col gap-3">
-                    <button className="flex items-center justify-center gap-3 rounded-full bg-slate-900 py-4 text-sm font-black text-white transition-all hover:bg-slate-800 active:scale-95">
-                      <MessageSquare size={18} /> Send Message
-                    </button>
-                    <button className="flex items-center justify-center gap-3 rounded-full border-2 border-slate-100 py-4 text-sm font-black text-slate-900 transition-all hover:bg-slate-50 active:scale-95">
-                      <Mail size={18} /> Inquire Details
+                    <button 
+                      onClick={() => {
+                        setSelectedStudent(null);
+                        navigate('/requests');
+                      }}
+                      className="flex items-center justify-center gap-3 rounded-full bg-slate-900 py-4 text-sm font-black text-white transition-all hover:bg-slate-800 active:scale-95 cursor-pointer"
+                    >
+                      <ClipboardList size={18} /> View Active Requests
                     </button>
                   </div>
                 </div>
@@ -192,7 +189,7 @@ const Students: React.FC = () => {
                 Meet your next <span className="text-brand-primary">Customer.</span>
               </h1>
               <p className="mt-8 text-lg font-medium leading-relaxed text-slate-400 sm:text-xl">
-                Browse through real students on campus. Check their interests, ratings, and active requests to tailor your vendor deals.
+                Browse through real students on campus. Check their interests and active requests to tailor your vendor deals.
               </p>
             </motion.div>
           </div>
@@ -213,7 +210,7 @@ const Students: React.FC = () => {
             </div>
           </div>
 
-            <div className="grid grid-cols-2 gap-4 sm:gap-8">
+          <div className="grid grid-cols-2 gap-4 sm:gap-8">
             {students.map((student) => (
               <motion.button
                 key={student.id}
@@ -228,7 +225,7 @@ const Students: React.FC = () => {
                   rotateY: -4,
                   transition: { type: 'spring', stiffness: 300, damping: 20 }
                 }}
-                className="group relative flex flex-col items-center overflow-hidden rounded-3xl sm:rounded-[2.5rem] bg-white p-4 sm:p-10 text-center shadow-xl shadow-slate-100 transition-all hover:shadow-2xl hover:shadow-slate-200/60"
+                className="group relative flex flex-col items-center overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] bg-white p-4 sm:p-10 text-center shadow-xl shadow-slate-100 transition-all hover:shadow-2xl hover:shadow-slate-200/60 cursor-pointer"
                 style={{ perspective: 1000, transformStyle: 'preserve-3d' }}
               >
                 <div className="relative mb-4 sm:mb-8 flex h-16 w-16 sm:h-28 sm:w-28 items-center justify-center rounded-full bg-slate-50 shadow-inner ring-1 ring-slate-100 transition-transform duration-500 group-hover:scale-110" style={{ transform: 'translateZ(20px)' }}>
@@ -238,7 +235,7 @@ const Students: React.FC = () => {
                 <div className="flex-1 w-full" style={{ transform: 'translateZ(30px)' }}>
                   <div className="mb-1 flex items-center justify-center gap-2">
                     <h3 className="text-sm sm:text-2xl font-black tracking-tight text-slate-900">{student.name}</h3>
-                    {student.verified && <ShieldCheck size={14} className="text-brand-primary sm:size-4.5" />}
+                    {student.verified && <ShieldCheck size={14} className="text-brand-primary sm:size-[18px]" />}
                   </div>
                   <p className="mb-3 sm:mb-6 text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest">{student.major}</p>
                   
@@ -252,7 +249,7 @@ const Students: React.FC = () => {
 
                   <div className="mt-auto flex items-center justify-center gap-2 sm:gap-4">
                     <div className="flex items-center gap-1 sm:gap-2 text-[8px] sm:text-xs font-bold text-slate-500">
-                      <MapPin size={10} className="sm:size-14" />
+                      <MapPin size={10} className="sm:w-3.5 sm:h-3.5" />
                       {student.campus}
                     </div>
                   </div>
@@ -282,10 +279,13 @@ const Students: React.FC = () => {
               </h2>
               <p className="mb-10 max-w-xl text-lg font-medium text-white/80">
                 Directly connect with students who are looking for what you sell. 
-                Save time and build a reputation in the student community.
+                View active student requests and pitch your custom quotes instantly!
               </p>
-              <button className="flex items-center gap-3 rounded-full bg-slate-900 px-10 py-5 text-base font-black text-white shadow-2xl transition-transform hover:scale-105 active:scale-95">
-                Join as Professional Vendor <ArrowRight size={20} />
+              <button 
+                onClick={() => navigate('/requests')}
+                className="flex items-center gap-3 rounded-full bg-slate-900 px-10 py-5 text-base font-black text-white shadow-2xl transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+              >
+                Go to Requests Feed <ArrowRight size={20} />
               </button>
             </div>
             

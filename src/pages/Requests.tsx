@@ -25,6 +25,7 @@ const MOCK_REQUESTS: any[] = [];
 const Requests: React.FC = () => {
   const { user } = useAuthStore();
   const [requests, setRequests] = useState<any[]>(MOCK_REQUESTS);
+  const [proposals, setProposals] = useState<any[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
   const [filter, setFilter] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -49,59 +50,73 @@ const Requests: React.FC = () => {
   const loadRequests = async () => {
     try {
       setLoading(true);
-      let localRequests = [];
+      const rRes = await dataApi.getRequests();
+      const pRes = await dataApi.getProposals();
+
+      let serverRequests = rRes.data;
+      if (!serverRequests) serverRequests = [];
+      if (!Array.isArray(serverRequests)) {
+        if (serverRequests && Array.isArray(serverRequests.requests)) {
+          serverRequests = serverRequests.requests;
+        } else if (serverRequests && Array.isArray(serverRequests.data)) {
+          serverRequests = serverRequests.data;
+        } else {
+          serverRequests = [];
+        }
+      }
+
+      let serverProposals = pRes.data;
+      if (!serverProposals) serverProposals = [];
+      if (!Array.isArray(serverProposals)) {
+        if (serverProposals && Array.isArray(serverProposals.proposals)) {
+          serverProposals = serverProposals.proposals;
+        } else if (serverProposals && Array.isArray(serverProposals.offers)) {
+          serverProposals = serverProposals.offers;
+        } else if (serverProposals && Array.isArray(serverProposals.data)) {
+          serverProposals = serverProposals.data;
+        } else {
+          serverProposals = [];
+        }
+      }
+
+      localStorage.setItem('client_student_requests', JSON.stringify(serverRequests));
+      localStorage.setItem('client_shared_proposals', JSON.stringify(serverProposals));
+
+      setRequests(serverRequests);
+      setProposals(serverProposals);
+    } catch (err) {
+      console.warn("Real-time cloud database sync skipped during requests load:", err);
       const local = localStorage.getItem('client_student_requests');
       if (local) {
-        localRequests = JSON.parse(local);
-      }
-      const localProposals = localStorage.getItem('client_shared_proposals');
-      const proposalsList = localProposals ? JSON.parse(localProposals) : [];
-
-      try {
-        const response = await dataApi.sync({
-          requests: localRequests,
-          proposals: proposalsList
-        });
-
-        if (response && response.data) {
-          const serverRequests = response.data.requests || [];
-          const serverProposals = response.data.proposals || [];
-
-          // Merge requests, server-side is authority
-          const mergedRequests = [...localRequests];
-          serverRequests.forEach((sr: any) => {
-            const idx = mergedRequests.findIndex(r => r.id === sr.id);
-            if (idx === -1) {
-              mergedRequests.push(sr);
-            } else {
-              mergedRequests[idx] = { ...mergedRequests[idx], ...sr };
-            }
-          });
-
-          // Merge proposals
-          const mergedProposals = [...proposalsList];
-          serverProposals.forEach((sp: any) => {
-            const idx = mergedProposals.findIndex(p => p.id === sp.id);
-            if (idx === -1) {
-              mergedProposals.push(sp);
-            } else {
-              mergedProposals[idx] = { ...mergedProposals[idx], ...sp };
-            }
-          });
-
-          localStorage.setItem('client_student_requests', JSON.stringify(mergedRequests));
-          localStorage.setItem('client_shared_proposals', JSON.stringify(mergedProposals));
-          
-          localRequests = mergedRequests;
+        try {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed)) {
+            setRequests(parsed);
+          } else if (parsed && Array.isArray(parsed.requests)) {
+            setRequests(parsed.requests);
+          } else {
+            setRequests([]);
+          }
+        } catch (e) {
+          setRequests([]);
         }
-      } catch (syncErr) {
-        console.warn("Real-time cloud database sync skipped during requests load:", syncErr);
       }
 
-      setRequests(localRequests);
-    } catch (err) {
-      console.error('Failed to load requests, using fallback:', err);
-      setRequests([]);
+      const localProp = localStorage.getItem('client_shared_proposals');
+      if (localProp) {
+        try {
+          const parsed = JSON.parse(localProp);
+          if (Array.isArray(parsed)) {
+            setProposals(parsed);
+          } else if (parsed && Array.isArray(parsed.proposals)) {
+            setProposals(parsed.proposals);
+          } else {
+            setProposals([]);
+          }
+        } catch (e) {
+          setProposals([]);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -111,9 +126,6 @@ const Requests: React.FC = () => {
     e.preventDefault();
     if (!selectedRequest) return;
     
-    const saved = localStorage.getItem('client_shared_proposals');
-    const currentProposals = saved ? JSON.parse(saved) : [];
-
     const price = parseFloat(pitchPrice);
     if (!price || price <= 0) {
       alert("Please enter a valid price in Maloti.");
@@ -134,16 +146,30 @@ const Requests: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    const updatedProposals = [newProposal, ...currentProposals];
-    localStorage.setItem('client_shared_proposals', JSON.stringify(updatedProposals));
-
-    // Share real-time proposal update with of all browsers/partners!
     try {
-      await dataApi.sync({
-        proposals: updatedProposals
-      });
+      // Create proposal directly on server
+      await dataApi.createProposal(newProposal);
+      // Synchronize state back from server immediately to keep everyone current
+      const pRes = await dataApi.getProposals();
+      let serverProposals = pRes.data || [];
+      if (!Array.isArray(serverProposals) && serverProposals && Array.isArray((serverProposals as any).proposals)) {
+        serverProposals = (serverProposals as any).proposals;
+      }
+      if (Array.isArray(serverProposals)) {
+        setProposals(serverProposals);
+        localStorage.setItem('client_shared_proposals', JSON.stringify(serverProposals));
+      } else {
+        const updated = [newProposal, ...proposals];
+        setProposals(updated);
+        localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
+      }
     } catch (syncErr) {
-      console.warn("Real-time pitch sync skipped, offline:", syncErr);
+      console.warn("Real-time pitch creation failed, falling back locally:", syncErr);
+      const saved = localStorage.getItem('client_shared_proposals');
+      const currentProposals = saved ? JSON.parse(saved) : [];
+      const updatedProposals = [newProposal, ...currentProposals];
+      setProposals(updatedProposals);
+      localStorage.setItem('client_shared_proposals', JSON.stringify(updatedProposals));
     }
 
     setPitchSuccess(true);
@@ -242,7 +268,25 @@ const Requests: React.FC = () => {
                           <h5 className="text-sm font-black text-slate-900">Proposal Transmitted!</h5>
                           <p className="text-[11px] font-semibold text-slate-500 mt-1">Check Sale & Offers Submitted tab dynamically.</p>
                         </div>
-                      ) : (
+                      ) : proposals.find((p: any) => p && p.requestId === selectedRequest.id) ? (() => {
+                        const existingPitch = proposals.find((p: any) => p && p.requestId === selectedRequest.id);
+                        return (
+                          <div className="rounded-2xl bg-emerald-50/25 border border-emerald-100 p-5 animate-fade-in">
+                            <div className="flex items-center gap-2 text-emerald-600 mb-2">
+                              <CheckCircle2 size={16} />
+                              <span className="text-[10px] font-black uppercase tracking-wider col-span-2">Proposal is Active</span>
+                            </div>
+                            <p className="text-sm font-black text-slate-900 font-mono">Proposed Price: M {existingPitch.proposedPrice}</p>
+                            <p className="text-xs font-semibold text-slate-500 mt-2 bg-white/70 p-2.5 rounded-xl border border-slate-100">
+                              "{existingPitch.message}"
+                            </p>
+                            <div className="mt-4 flex items-center justify-between border-t border-slate-100/60 pt-3 text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                              <span>Status: <span className={`font-black ${existingPitch.status === 'accepted' ? 'text-emerald-500' : existingPitch.status === 'declined' ? 'text-rose-500' : 'text-amber-500'}`}>{existingPitch.status || 'pending'}</span></span>
+                              <span>{new Date(existingPitch.timestamp || Date.now()).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        );
+                      })() : (
                         <form onSubmit={handleSendPitch} className="space-y-3.5">
                           <div className="grid grid-cols-1 gap-1">
                             <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 ml-1">Your Proposed Price (Maloti M)</label>
@@ -403,6 +447,12 @@ const Requests: React.FC = () => {
                     <Tag size={12} /> {req.category}
                   </div>
                 </div>
+
+                {proposals.some(p => p && p.requestId === req.id) && (
+                  <div className="mt-4 flex items-center gap-1.5 rounded-xl bg-orange-50 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-orange-600 border border-orange-100 w-fit">
+                    <CheckCircle2 size={12} /> Pitch Sent
+                  </div>
+                )}
               </div>
 
               <div className="mt-8 flex w-full items-center justify-between pt-6 border-t border-slate-50">

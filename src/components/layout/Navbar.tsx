@@ -4,6 +4,7 @@ import { ShoppingBag, Search, User as UserIcon, Menu, X, ChevronRight, Users, Ta
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationStore } from '../../store/notificationStore';
 import { motion, AnimatePresence } from 'motion/react';
+import { dataApi } from '../../lib/api';
 
 import { Logo } from '../ui/Logo';
 
@@ -18,15 +19,26 @@ const Navbar: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const runSync = () => {
+    const runSync = async () => {
       try {
-        const localRequests = localStorage.getItem('client_student_requests');
-        const requestsList = localRequests ? JSON.parse(localRequests) : [];
-        const localProposals = localStorage.getItem('client_shared_proposals');
-        const proposalsList = localProposals ? JSON.parse(localProposals) : [];
+        const rRes = await dataApi.getRequests();
+        const pRes = await dataApi.getProposals();
+        
+        const requestsList = rRes.data || [];
+        const proposalsList = pRes.data || [];
+
         syncNotifications(user, requestsList, proposalsList);
       } catch (err) {
-        console.error('Failed to run notification sync inside Navbar:', err);
+        console.warn('Fallback: notification sync reading from local cache:', err);
+        try {
+          const localRequests = localStorage.getItem('client_student_requests');
+          const requestsList = localRequests ? JSON.parse(localRequests) : [];
+          const localProposals = localStorage.getItem('client_shared_proposals');
+          const proposalsList = localProposals ? JSON.parse(localProposals) : [];
+          syncNotifications(user, requestsList, proposalsList);
+        } catch (localErr) {
+          console.error('Failed to run fallback notification sync inside Navbar:', localErr);
+        }
       }
     };
 

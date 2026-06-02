@@ -16,40 +16,11 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { dataApi } from '../lib/api';
 
 const SubmittedOffers: React.FC = () => {
   const { user } = useAuthStore();
-  const [proposals, setProposals] = useState<any[]>(() => {
-    const saved = localStorage.getItem('client_shared_proposals');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'prop-fallback-l2-1',
-        requestId: 'req-l2',
-        requestTitle: 'HP Pavilion Laptop Charger (65W)',
-        studentName: 'Thabo Mokoena',
-        proposedPrice: 380,
-        vendorName: 'Roma Tech Hub',
-        vendorPhone: '+266 5890 1234',
-        vendorRating: 4.9,
-        message: 'Greetings! I have the original 65W blue-tip replacement charger in stock right now at Roma Tech Hub. Let me know when you want to pick it up.',
-        status: 'pending',
-        timestamp: new Date().toISOString()
-      },
-      {
-        id: 'prop-fallback-l1-1',
-        requestId: 'req-l1',
-        requestTitle: 'Macroeconomics 101 Textbook',
-        studentName: 'Mpuleng Tseoa',
-        proposedPrice: 300,
-        vendorName: 'CAS Books & Supplies',
-        vendorPhone: '+266 5971 8820',
-        vendorRating: 4.9,
-        message: 'Hi, I have a very clean, unmarked copy of this Macroeconomics textbook. Ready to bring it to your room in Maseru campus or meet near CAS.',
-        status: 'pending',
-        timestamp: new Date().toISOString()
-      }
-    ];
-  });
+  const [proposals, setProposals] = useState<any[]>([]);
 
   const [studentRequests, setStudentRequests] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,22 +31,97 @@ const SubmittedOffers: React.FC = () => {
   const [revisedPrice, setRevisedPrice] = useState('');
   const [revisedMsg, setRevisedMsg] = useState('');
 
+  const fetchProposalsAndRequests = async () => {
+    try {
+      const rRes = await dataApi.getRequests();
+      const pRes = await dataApi.getProposals();
+      
+      let serverRequests = rRes.data;
+      if (!serverRequests) serverRequests = [];
+      if (!Array.isArray(serverRequests)) {
+        if (serverRequests && Array.isArray(serverRequests.requests)) {
+          serverRequests = serverRequests.requests;
+        } else if (serverRequests && Array.isArray(serverRequests.data)) {
+          serverRequests = serverRequests.data;
+        } else {
+          serverRequests = [];
+        }
+      }
+
+      let serverProposals = pRes.data;
+      if (!serverProposals) serverProposals = [];
+      if (!Array.isArray(serverProposals)) {
+        if (serverProposals && Array.isArray(serverProposals.proposals)) {
+          serverProposals = serverProposals.proposals;
+        } else if (serverProposals && Array.isArray(serverProposals.offers)) {
+          serverProposals = serverProposals.offers;
+        } else if (serverProposals && Array.isArray(serverProposals.data)) {
+          serverProposals = serverProposals.data;
+        } else {
+          serverProposals = [];
+        }
+      }
+
+      localStorage.setItem('client_student_requests', JSON.stringify(serverRequests));
+      localStorage.setItem('client_shared_proposals', JSON.stringify(serverProposals));
+
+      setStudentRequests(serverRequests);
+      setProposals(serverProposals);
+    } catch (err) {
+      console.warn("Failed to fetch proposals/requests in SubmittedOffers, using locally cached fallback:", err);
+      const localReq = localStorage.getItem('client_student_requests');
+      if (localReq) {
+        try {
+          const parsed = JSON.parse(localReq);
+          if (Array.isArray(parsed)) {
+            setStudentRequests(parsed);
+          } else if (parsed && Array.isArray(parsed.requests)) {
+            setStudentRequests(parsed.requests);
+          } else {
+            setStudentRequests([]);
+          }
+        } catch (e) {
+          console.warn("Error parsing cached student requests:", e);
+          setStudentRequests([]);
+        }
+      }
+      
+      const localProp = localStorage.getItem('client_shared_proposals');
+      if (localProp) {
+        try {
+          const parsed = JSON.parse(localProp);
+          if (Array.isArray(parsed)) {
+            setProposals(parsed);
+          } else if (parsed && Array.isArray(parsed.proposals)) {
+            setProposals(parsed.proposals);
+          } else {
+            setProposals([]);
+          }
+        } catch (e) {
+          console.warn("Error parsing cached proposals:", e);
+          setProposals([]);
+        }
+      }
+    }
+  };
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
-    const local = localStorage.getItem('client_student_requests');
-    if (local) {
-      setStudentRequests(JSON.parse(local));
-    }
+    fetchProposalsAndRequests();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem('client_shared_proposals', JSON.stringify(proposals));
-  }, [proposals, user]);
-
-  const handleWithdrawProposal = (id: string) => {
+  const handleWithdrawProposal = async (id: string) => {
     const confirmation = window.confirm('Are you sure you want to withdraw this pitch/offer?');
     if (confirmation) {
-      setProposals(proposals.filter(p => p.id !== id));
+      try {
+        await dataApi.deleteProposal(id);
+        await fetchProposalsAndRequests();
+      } catch (err) {
+        console.error("Failed to delete proposal:", err);
+        const updated = proposals.filter(p => p.id !== id);
+        setProposals(updated);
+        localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
+      }
     }
   };
 
@@ -85,47 +131,101 @@ const SubmittedOffers: React.FC = () => {
     setRevisedMsg(p.message);
   };
 
-  const handleUpdateProposalValue = (e: React.FormEvent) => {
+  const handleUpdateProposalValue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProposal) return;
 
-    setProposals(proposals.map(p => {
-      if (p.id === editingProposal.id) {
-        return {
-          ...p,
-          proposedPrice: parseFloat(revisedPrice) || p.proposedPrice,
-          message: revisedMsg,
-          timestamp: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
+    const updatedPayload = {
+      ...editingProposal,
+      proposedPrice: parseFloat(revisedPrice) || editingProposal.proposedPrice,
+      message: revisedMsg,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      await dataApi.editProposal(editingProposal.id, updatedPayload);
+      await fetchProposalsAndRequests();
+    } catch (err) {
+      console.error("Failed to update proposal on backend:", err);
+      const updated = proposals.map(p => {
+        if (p.id === editingProposal.id) {
+          return updatedPayload;
+        }
+        return p;
+      });
+      setProposals(updated);
+      localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
+    }
 
     setEditingProposal(null);
   };
 
-  const handleSimulateStudentStatus = (id: string, newStatus: 'accepted' | 'declined' | 'pending') => {
-    setProposals(proposals.map(p => {
-      if (p.id === id) {
-        return { ...p, status: newStatus };
+  const handleSimulateStudentStatus = async (id: string, newStatus: 'accepted' | 'declined' | 'pending') => {
+    const targetProposal = proposals.find(p => p.id === id);
+    if (!targetProposal) return;
+
+    const updatedPayload = {
+      ...targetProposal,
+      status: newStatus
+    };
+
+    try {
+      await dataApi.editProposal(id, updatedPayload);
+      await fetchProposalsAndRequests();
+    } catch (err) {
+      console.error("Failed to simulate student action on backend:", err);
+      const updatedProposals = proposals.map(p => {
+        if (p.id === id) {
+          return { ...p, status: newStatus };
+        }
+        if (newStatus === 'accepted' && p.requestId === targetProposal.requestId && p.id !== id) {
+          return { ...p, status: 'declined' };
+        }
+        return p;
+      });
+
+      setProposals(updatedProposals);
+      localStorage.setItem('client_shared_proposals', JSON.stringify(updatedProposals));
+
+      const localReqs = localStorage.getItem('client_student_requests');
+      if (localReqs) {
+        try {
+          const parsedReqs = JSON.parse(localReqs);
+          const updatedReqs = parsedReqs.map((r: any) => {
+            if (r.id === targetProposal.requestId) {
+              return {
+                ...r,
+                status: newStatus === 'accepted' ? 'resolved' : 'urgent'
+              };
+            }
+            return r;
+          });
+          localStorage.setItem('client_student_requests', JSON.stringify(updatedReqs));
+          setStudentRequests(updatedReqs);
+        } catch (err) {
+          console.error('Failed to sync student requests status during simulation:', err);
+        }
       }
-      return p;
-    }));
+    }
   };
 
   // Metrics calculations
-  const totalBids = proposals.length;
-  const acceptedBids = proposals.filter(p => p.status === 'accepted').length;
-  const pendingBids = proposals.filter(p => p.status === 'pending').length;
-  const projectedRevenue = proposals
-    .filter(p => p.status === 'accepted')
-    .reduce((sum, p) => sum + (p.proposedPrice || 0), 0);
+  const safeProposals = Array.isArray(proposals) ? proposals : [];
+  const totalBids = safeProposals.length;
+  const acceptedBids = safeProposals.filter(p => p && p.status === 'accepted').length;
+  const pendingBids = safeProposals.filter(p => p && p.status === 'pending').length;
+  const projectedRevenue = safeProposals
+    .filter(p => p && p.status === 'accepted')
+    .reduce((sum, p) => sum + (Number(p.proposedPrice) || 0), 0);
 
   // Filter proposals
-  const filteredProposals = proposals.filter(p => {
+  const filteredProposals = safeProposals.filter(p => {
+    if (!p) return false;
+    const titleStr = p.requestTitle || '';
+    const nameStr = p.studentName || '';
     const matchesSearch = 
-      p.requestTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.studentName.toLowerCase().includes(searchQuery.toLowerCase());
+      titleStr.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      nameStr.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     

@@ -172,8 +172,62 @@ async function startServer() {
   });
 
   // Shared in-memory databases to ensure instant multi-device sync
-  let sharedRequests: any[] = [];
-  let sharedProposals: any[] = [];
+  let sharedRequests: any[] = [
+    {
+      id: 'req-l2',
+      item: 'HP Pavilion Laptop Charger (65W)',
+      title: 'HP Pavilion Laptop Charger (65W)',
+      category: 'Electronics',
+      budget: '400',
+      description: 'Need a blue-tip HP laptop charger 65W, must be original or high-quality. Around Roma campus or NUL.',
+      student: 'Thabo Mokoena',
+      studentUid: 'student_thabo',
+      campus: 'Roma',
+      postedAt: 'Just now',
+      status: 'open',
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: 'req-l1',
+      item: 'Macroeconomics 101 Textbook',
+      title: 'Macroeconomics 101 Textbook',
+      category: 'Books',
+      budget: '350',
+      description: 'Looking for the latest edition of Macroeconomics 101 textbook. Clean, no marker drawings please. MASERU or CAS.',
+      student: 'Mpuleng Tseoa',
+      studentUid: 'student_mpuleng',
+      campus: 'Maseru',
+      postedAt: 'Just now',
+      status: 'open',
+      timestamp: new Date().toISOString()
+    }
+  ];
+  let sharedProposals: any[] = [
+    {
+      id: "prop-fallback-l2-1",
+      requestId: "req-l2",
+      requestTitle: "HP Pavilion Laptop Charger (65W)",
+      studentName: "Thabo Mokoena",
+      proposedPrice: 380,
+      vendorName: "Roma Tech Hub",
+      vendorPhone: "+266 5890 1234",
+      message: "Greetings! I have the original 65W blue-tip replacement. I can deliver to your block on the Roma campus or you can pick it up at our Roma Tech Hub studio.",
+      status: "pending",
+      timestamp: new Date().toISOString()
+    },
+    {
+      id: "prop-fallback-l1-1",
+      requestId: "req-l1",
+      requestTitle: "Macroeconomics 101 Textbook",
+      studentName: "Mpuleng Tseoa",
+      proposedPrice: 300,
+      vendorName: "CAS Books & Supplies",
+      vendorPhone: "+266 5971 8820",
+      message: "Hi, I have a very clean, unmarked copy of this Macroeconomics textbook. Ready to bring it to your room in Maseru campus or meet near CAS.",
+      status: "pending",
+      timestamp: new Date().toISOString()
+    }
+  ];
 
   app.get("/api/sync", (req, res) => {
     res.json({
@@ -233,9 +287,348 @@ async function startServer() {
   });
 
   // Data Fetching Proxies
-  app.get("/api/requests", (req, res) => {
+  app.get("/api/requests", async (req, res) => {
+    try {
+      // Try to fetch latest requests from partner's possible endpoints to maintain real-time sync
+      const candidates = [
+        `${PARTNER_BACKEND_URL}/requests`,
+        `${PARTNER_BACKEND_URL}/api/requests`,
+        `${PARTNER_BACKEND_URL}/wants`,
+        `${PARTNER_BACKEND_URL}/api/wants`
+      ];
+
+      let partnerRequests: any[] = [];
+      for (const url of candidates) {
+        try {
+          const response = await axios.get(url, { timeout: 2000 });
+          if (response.data && Array.isArray(response.data)) {
+            partnerRequests = response.data;
+            break;
+          } else if (response.data && typeof response.data === 'object') {
+            const dataObj = response.data;
+            if (Array.isArray(dataObj.requests)) {
+              partnerRequests = dataObj.requests;
+              break;
+            } else if (Array.isArray(dataObj.data)) {
+              partnerRequests = dataObj.data;
+              break;
+            } else if (Array.isArray(dataObj.wants)) {
+              partnerRequests = dataObj.wants;
+              break;
+            }
+          }
+        } catch (e) {
+          // Keep attempting
+        }
+      }
+
+      if (partnerRequests.length > 0) {
+        partnerRequests.forEach((reqObj: any) => {
+          if (reqObj && reqObj.id) {
+            const index = sharedRequests.findIndex(r => r.id === reqObj.id);
+            if (index === -1) {
+              sharedRequests.push(reqObj);
+            } else {
+              sharedRequests[index] = { ...sharedRequests[index], ...reqObj };
+            }
+          }
+        });
+      }
+    } catch (err: any) {
+      console.warn("Skipped syncing requests from partner:", err.message);
+    }
     // Merge shared in-memory student requests with any legacy requests
     res.json(sharedRequests);
+  });
+
+  // Dedicated PUT endpoint for editing an individual request
+  app.put("/api/requests/:id", (req: express.Request, res: express.Response) => {
+    const { id } = req.params;
+    const reqData = req.body;
+    let savedRequest: any = null;
+
+    try {
+      if (reqData) {
+        const title = reqData.item || reqData.title || reqData.item_name || "Untitled Request";
+        const description = reqData.description || "No description provided.";
+        const category = reqData.category || "General";
+        const budget = reqData.budget || "0";
+        const student = reqData.student || "Demo Student";
+        const studentUid = reqData.studentUid || reqData.student_id || "demo-uid";
+        const campus = reqData.campus || "Roma";
+        const status = reqData.status || "open";
+        const timestamp = reqData.timestamp || reqData.created_at || new Date().toISOString();
+
+        savedRequest = {
+          id,
+          item: title,
+          category,
+          budget,
+          description,
+          student,
+          studentUid,
+          campus,
+          postedAt: "Just now",
+          status,
+          timestamp,
+          title,
+          student_id: studentUid,
+          student_name: student,
+          item_name: title,
+          created_at: timestamp
+        };
+
+        const index = sharedRequests.findIndex(r => r.id === id);
+        if (index === -1) {
+          sharedRequests.unshift(savedRequest);
+        } else {
+          sharedRequests[index] = { ...sharedRequests[index], ...savedRequest };
+        }
+
+        // Background sync to partner's database endpoints
+        const endpointsToTry = [
+          { url: `${PARTNER_BACKEND_URL}/requests/${id}`, data: savedRequest, method: 'PUT' },
+          { url: `${PARTNER_BACKEND_URL}/api/requests/${id}`, data: savedRequest, method: 'PUT' },
+          { url: `${PARTNER_BACKEND_URL}/requests`, data: savedRequest, method: 'POST' },
+          { url: `${PARTNER_BACKEND_URL}/api/requests`, data: savedRequest, method: 'POST' }
+        ];
+
+        endpointsToTry.forEach(ep => {
+          if (ep.method === 'PUT') {
+            axios.put(ep.url, ep.data, { timeout: 3000 }).catch(() => {});
+          } else {
+            axios.post(ep.url, ep.data, { timeout: 3000 }).catch(() => {});
+          }
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Post updated successfully via PUT endpoint and background synced to partner.",
+        request: savedRequest
+      });
+    } catch (err: any) {
+      console.error("Error in PUT /api/requests/:id:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Dedicated DELETE endpoint for deleting an individual request
+  app.delete("/api/requests/:id", (req: express.Request, res: express.Response) => {
+    const { id } = req.params;
+    try {
+      sharedRequests = sharedRequests.filter(r => r.id !== id);
+
+      // Notify partner backend about deletion
+      const deleteEndpoints = [
+        { url: `${PARTNER_BACKEND_URL}/requests/${id}` },
+        { url: `${PARTNER_BACKEND_URL}/api/requests/${id}` },
+        { url: `${PARTNER_BACKEND_URL}/requests/delete/${id}` },
+        { url: `${PARTNER_BACKEND_URL}/api/requests/delete/${id}` }
+      ];
+
+      deleteEndpoints.forEach(ep => {
+        axios.delete(ep.url, { timeout: 3000 }).catch(() => {});
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Post deleted successfully via DELETE endpoint and synced with partner.",
+        deletedId: id
+      });
+    } catch (err: any) {
+      console.error("Error in DELETE /api/requests/:id:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // REST API Endpoints for Proposals / Offers
+  app.get("/api/proposals", async (req, res) => {
+    try {
+      // Try to fetch latest proposals from partner's possible endpoints to maintain real-time sync with MongoDB
+      const candidates = [
+        `${PARTNER_BACKEND_URL}/proposals`,
+        `${PARTNER_BACKEND_URL}/api/proposals`,
+        `${PARTNER_BACKEND_URL}/offers`,
+        `${PARTNER_BACKEND_URL}/api/offers`
+      ];
+
+      let partnerProposals: any[] = [];
+      for (const url of candidates) {
+        try {
+          const response = await axios.get(url, { timeout: 2000 });
+          if (response.data && Array.isArray(response.data)) {
+            partnerProposals = response.data;
+            break;
+          }
+        } catch (e) {
+          // Keep looping to find matching live endpoint
+        }
+      }
+
+      if (partnerProposals.length > 0) {
+        partnerProposals.forEach((pObj: any) => {
+          if (pObj && pObj.id) {
+            const index = sharedProposals.findIndex(p => p.id === pObj.id);
+            if (index === -1) {
+              sharedProposals.push(pObj);
+            } else {
+              sharedProposals[index] = { ...sharedProposals[index], ...pObj };
+            }
+          }
+        });
+      }
+    } catch (err: any) {
+      console.warn("Skipped syncing proposals from partner:", err.message);
+    }
+    res.json(sharedProposals);
+  });
+
+  app.post("/api/proposals", async (req, res) => {
+    try {
+      const proposal = req.body;
+      if (!proposal.id) {
+        proposal.id = `prop-${Date.now()}`;
+      }
+      if (!proposal.timestamp) {
+        proposal.timestamp = new Date().toISOString();
+      }
+      if (!proposal.status) {
+        proposal.status = "pending";
+      }
+
+      const index = sharedProposals.findIndex(p => p.id === proposal.id);
+      if (index === -1) {
+        sharedProposals.unshift(proposal);
+      } else {
+        sharedProposals[index] = { ...sharedProposals[index], ...proposal };
+      }
+
+      // Safe background propagate to partner's backend databases (supports various resource pathways)
+      try {
+        const epToSync = [
+          { url: `${PARTNER_BACKEND_URL}/proposals`, data: proposal, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/api/proposals`, data: proposal, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/offers`, data: proposal, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/api/offers`, data: proposal, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/sync`, data: { proposals: [proposal] }, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/api/sync`, data: { proposals: [proposal] }, method: "POST" }
+        ];
+
+        epToSync.forEach(ep => {
+          axios.post(ep.url, ep.data, { timeout: 3000 }).catch(() => {});
+        });
+      } catch (syncErr: any) {
+        console.warn("Skipped background proposal propagation:", syncErr.message);
+      }
+
+      res.status(201).json({
+        success: true,
+        message: "Proposal created and shared",
+        proposal
+      });
+    } catch (err: any) {
+      console.error("Error creating proposal:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.put("/api/proposals/:id", async (req, res) => {
+    const { id } = req.params;
+    const updateData = req.body;
+    try {
+      const index = sharedProposals.findIndex(p => p.id === id);
+      if (index === -1) {
+        return res.status(404).json({ success: false, error: "Proposal not found" });
+      }
+
+      sharedProposals[index] = { ...sharedProposals[index], ...updateData };
+      const updatedProp = sharedProposals[index];
+
+      // Auto-decline alternative proposals for the same requestId if this one gets accepted
+      if (updateData.status === "accepted") {
+        sharedProposals = sharedProposals.map(p => {
+          if (p.requestId === updatedProp.requestId && p.id !== id) {
+            return { ...p, status: "declined" };
+          }
+          return p;
+        });
+
+        // Also update the associated request status to 'resolved'
+        const reqIndex = sharedRequests.findIndex(r => r.id === updatedProp.requestId);
+        if (reqIndex !== -1) {
+          sharedRequests[reqIndex].status = "resolved";
+          // Sync request update to partner in background
+          try {
+            const endpointsToTry = [
+              { url: `${PARTNER_BACKEND_URL}/requests/${updatedProp.requestId}`, data: sharedRequests[reqIndex], method: "PUT" },
+              { url: `${PARTNER_BACKEND_URL}/api/requests/${updatedProp.requestId}`, data: sharedRequests[reqIndex], method: "PUT" }
+            ];
+            endpointsToTry.forEach(ep => axios.put(ep.url, ep.data, { timeout: 3000 }).catch(() => {}));
+          } catch (reqSyncErr: any) {
+            console.warn("Skipped background request update propagation:", reqSyncErr.message);
+          }
+        }
+      }
+
+      // Propagate update to partner backend systems
+      try {
+        const epToSync = [
+          { url: `${PARTNER_BACKEND_URL}/proposals/${id}`, data: updateData, method: "PUT" },
+          { url: `${PARTNER_BACKEND_URL}/api/proposals/${id}`, data: updateData, method: "PUT" },
+          { url: `${PARTNER_BACKEND_URL}/offers/${id}`, data: updateData, method: "PUT" },
+          { url: `${PARTNER_BACKEND_URL}/api/offers/${id}`, data: updateData, method: "PUT" },
+          { url: `${PARTNER_BACKEND_URL}/proposals/update/${id}`, data: updateData, method: "POST" },
+          { url: `${PARTNER_BACKEND_URL}/api/proposals/update/${id}`, data: updateData, method: "POST" }
+        ];
+
+        epToSync.forEach(ep => {
+          if (ep.method === "PUT") {
+            axios.put(ep.url, ep.data, { timeout: 3000 }).catch(() => {});
+          } else {
+            axios.post(ep.url, ep.data, { timeout: 3000 }).catch(() => {});
+          }
+        });
+      } catch (propSyncErr: any) {
+        console.warn("Skipped background proposal update propagation:", propSyncErr.message);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Proposal updated successfully",
+        proposal: updatedProp
+      });
+    } catch (err: any) {
+      console.error("Error updating proposal:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete("/api/proposals/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      sharedProposals = sharedProposals.filter(p => p.id !== id);
+
+      const deleteEndpoints = [
+        `${PARTNER_BACKEND_URL}/proposals/${id}`,
+        `${PARTNER_BACKEND_URL}/api/proposals/${id}`,
+        `${PARTNER_BACKEND_URL}/offers/${id}`,
+        `${PARTNER_BACKEND_URL}/api/offers/${id}`
+      ];
+
+      deleteEndpoints.forEach(url => {
+        axios.delete(url, { timeout: 3000 }).catch(() => {});
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Proposal deleted successfully",
+        deletedId: id
+      });
+    } catch (err: any) {
+      console.error("Error deleting proposal:", err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   app.get("/api/students", (req, res) => {

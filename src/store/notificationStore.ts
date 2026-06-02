@@ -122,7 +122,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     // --- STUDENTS NOTIFICATION CRITERIA ---
     if (user.role === 'student' || !user.role) {
       // Find students' own request IDs to compare incoming proposals
-      const studentRequests = currentRequests;
+      const studentRequests = currentRequests.filter(
+        (r) => r && (r.studentUid === user.uid || (user.displayName && r.student === user.displayName))
+      );
       const studentRequestIds = new Set<string>(studentRequests.map((r) => r.id));
 
       currentProposals.forEach((prop) => {
@@ -162,4 +164,3 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }
   },
 }));
-

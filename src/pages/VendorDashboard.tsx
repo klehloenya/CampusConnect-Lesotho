@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Store,
   MapPin, 
-  Star, 
   ShieldCheck, 
   Plus, 
   Sparkles, 
@@ -61,13 +60,30 @@ const CATEGORIES = ['Electronics', 'Food', 'Books', 'Handmade', 'Services', 'Clo
 const VendorDashboard: React.FC = () => {
   const { user } = useAuthStore();
   const [deals, setDeals] = useState<any[]>(() => {
-    const saved = localStorage.getItem(`vendor_deals_${user?.uid || 'default'}`);
-    return saved ? JSON.parse(saved) : INITIAL_VENDOR_DEALS;
+    try {
+      const saved = localStorage.getItem(`vendor_deals_${user?.uid || 'default'}`);
+      return saved ? JSON.parse(saved) : INITIAL_VENDOR_DEALS;
+    } catch (e) {
+      console.warn("Failed to parse vendor deals, using initial:", e);
+      return INITIAL_VENDOR_DEALS;
+    }
   });
 
   const [proposals, setProposals] = useState<any[]>(() => {
-    const saved = localStorage.getItem('client_shared_proposals');
-    return saved ? JSON.parse(saved) : [
+    try {
+      const saved = localStorage.getItem('client_shared_proposals');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        } else if (parsed && Array.isArray(parsed.proposals)) {
+          return parsed.proposals;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse client shared proposals:", e);
+    }
+    return [
       {
         id: 'prop-fallback-l2-1',
         requestId: 'req-l2',
@@ -105,6 +121,12 @@ const VendorDashboard: React.FC = () => {
     return Number(localStorage.getItem(`vendor_sales_${user?.uid || 'default'}`) || '1140');
   });
 
+  const acceptedProposalsTotal = proposals
+    .filter((p: any) => p?.status === 'accepted')
+    .reduce((sum: number, p: any) => sum + (Number(p?.proposedPrice) || 0), 0);
+
+  const displaySales = totalSales + acceptedProposalsTotal;
+
   // Filters for student needs
   const [filterCampus, setFilterCampus] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -123,53 +145,58 @@ const VendorDashboard: React.FC = () => {
   const [proposalPrice, setProposalPrice] = useState('');
   const [proposalMsg, setProposalMsg] = useState('');
 
-  const syncWithServerDatabase = async (overrideRequests?: any[], overrideProposals?: any[]) => {
+  const syncWithServerDatabase = async () => {
     try {
-      const localRequestsRaw = localStorage.getItem('client_student_requests');
-      const localProposalsRaw = localStorage.getItem('client_shared_proposals');
-      
-      const requests = overrideRequests || (localRequestsRaw ? JSON.parse(localRequestsRaw) : []);
-      const proposalsList = overrideProposals || (localProposalsRaw ? JSON.parse(localProposalsRaw) : []);
+      const rRes = await dataApi.getRequests();
+      const pRes = await dataApi.getProposals();
 
-      const response = await dataApi.sync({
-        requests,
-        proposals: proposalsList
-      });
-
-      if (response && response.data) {
-        const serverRequests = response.data.requests || [];
-        const serverProposals = response.data.proposals || [];
-
-        // Merge requests, server-side is authority
-        const mergedRequests = [...requests];
-        serverRequests.forEach((sr: any) => {
-          const idx = mergedRequests.findIndex(r => r.id === sr.id);
-          if (idx === -1) {
-            mergedRequests.push(sr);
-          } else {
-            mergedRequests[idx] = { ...mergedRequests[idx], ...sr };
-          }
-        });
-
-        // Merge proposals
-        const mergedProposals = [...proposalsList];
-        serverProposals.forEach((sp: any) => {
-          const idx = mergedProposals.findIndex(p => p.id === sp.id);
-          if (idx === -1) {
-            mergedProposals.push(sp);
-          } else {
-            mergedProposals[idx] = { ...mergedProposals[idx], ...sp };
-          }
-        });
-
-        localStorage.setItem('client_student_requests', JSON.stringify(mergedRequests));
-        localStorage.setItem('client_shared_proposals', JSON.stringify(mergedProposals));
-
-        setStudentRequests(mergedRequests);
-        setProposals(mergedProposals);
+      let serverRequests = rRes.data;
+      if (!serverRequests) serverRequests = [];
+      if (!Array.isArray(serverRequests)) {
+        if (serverRequests && Array.isArray(serverRequests.requests)) {
+          serverRequests = serverRequests.requests;
+        } else if (serverRequests && Array.isArray(serverRequests.data)) {
+          serverRequests = serverRequests.data;
+        } else {
+          serverRequests = [];
+        }
       }
+
+      let serverProposals = pRes.data;
+      if (!serverProposals) serverProposals = [];
+      if (!Array.isArray(serverProposals)) {
+        if (serverProposals && Array.isArray(serverProposals.proposals)) {
+          serverProposals = serverProposals.proposals;
+        } else if (serverProposals && Array.isArray(serverProposals.offers)) {
+          serverProposals = serverProposals.offers;
+        } else if (serverProposals && Array.isArray(serverProposals.data)) {
+          serverProposals = serverProposals.data;
+        } else {
+          serverProposals = [];
+        }
+      }
+
+      localStorage.setItem('client_student_requests', JSON.stringify(serverRequests));
+      localStorage.setItem('client_shared_proposals', JSON.stringify(serverProposals));
+
+      setStudentRequests(serverRequests);
+      setProposals(serverProposals);
     } catch (err) {
-      console.warn("Real-time cloud database sync skipped, offline mode:", err);
+      console.warn("Real-time cloud database sync failed, utilizing offline fallback:", err);
+      loadStudentRequests();
+      try {
+        const saved = localStorage.getItem('client_shared_proposals');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setProposals(parsed);
+          } else if (parsed && Array.isArray(parsed.proposals)) {
+            setProposals(parsed.proposals);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse fallback client shared proposals:", e);
+      }
     }
   };
 
@@ -184,16 +211,29 @@ const VendorDashboard: React.FC = () => {
   }, [deals, user]);
 
   useEffect(() => {
-    localStorage.setItem('client_shared_proposals', JSON.stringify(proposals));
+    if (Array.isArray(proposals)) {
+      localStorage.setItem('client_shared_proposals', JSON.stringify(proposals));
+    }
   }, [proposals, user]);
 
   const loadStudentRequests = () => {
-    const local = localStorage.getItem('client_student_requests');
-    if (local) {
-      setStudentRequests(JSON.parse(local));
-    } else {
-      setStudentRequests([]);
+    try {
+      const local = localStorage.getItem('client_student_requests');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          setStudentRequests(parsed);
+        } else if (parsed && Array.isArray(parsed.requests)) {
+          setStudentRequests(parsed.requests);
+        } else {
+          setStudentRequests([]);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn("Failed to parse client student requests:", e);
     }
+    setStudentRequests([]);
   };
 
   const handleCreateDeal = (e: React.FormEvent) => {
@@ -240,7 +280,7 @@ const VendorDashboard: React.FC = () => {
     setProposalMsg(`Greetings ${req.student}! I can definitely assist you with your request for "${req.item}". `);
   };
 
-  const handleSubmitProposal = (e: React.FormEvent) => {
+  const handleSubmitProposal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedReqForProposal) return;
 
@@ -258,28 +298,42 @@ const VendorDashboard: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    const updated = [newProp, ...proposals];
-    setProposals(updated);
-    localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
-    syncWithServerDatabase(undefined, updated);
+    try {
+      // Create proposal directly in database
+      await dataApi.createProposal(newProp);
+      await syncWithServerDatabase();
+    } catch (err) {
+      console.error("Failed to create offer on backend, falling back locally:", err);
+      const updated = [newProp, ...proposals];
+      setProposals(updated);
+      localStorage.setItem('client_shared_proposals', JSON.stringify(updated));
+    }
 
     setSelectedReqForProposal(null);
     setProposalPrice('');
     setProposalMsg('');
   };
 
-  const handleCancelProposal = (id: string) => {
-    const finalPropList = proposals.filter(p => p.id !== id);
-    setProposals(finalPropList);
-    localStorage.setItem('client_shared_proposals', JSON.stringify(finalPropList));
-    syncWithServerDatabase(undefined, finalPropList);
+  const handleCancelProposal = async (id: string) => {
+    try {
+      await dataApi.deleteProposal(id);
+      await syncWithServerDatabase();
+    } catch (err) {
+      console.error("Failed to delete offer on backend, falling back locally:", err);
+      const finalPropList = proposals.filter(p => p.id !== id);
+      setProposals(finalPropList);
+      localStorage.setItem('client_shared_proposals', JSON.stringify(finalPropList));
+    }
   };
 
   // Filter requests based on inputs
   const filteredRequests = studentRequests.filter(req => {
+    if (!req) return false;
     if (req.status === 'resolved') return false; // Hide resolved requests in vendor active feed
-    const matchesCampus = filterCampus === 'all' || req.campus.toLowerCase().includes(filterCampus.toLowerCase());
-    const matchesCategory = filterCategory === 'all' || req.category.toLowerCase() === filterCategory.toLowerCase();
+    const campusString = req.campus || '';
+    const categoryString = req.category || '';
+    const matchesCampus = filterCampus === 'all' || campusString.toLowerCase().includes(filterCampus.toLowerCase());
+    const matchesCategory = filterCategory === 'all' || categoryString.toLowerCase() === filterCategory.toLowerCase();
     return matchesCampus && matchesCategory;
   });
 
@@ -313,7 +367,7 @@ const VendorDashboard: React.FC = () => {
         </div>
 
         {/* Sales & Merchant Metric Badges */}
-        <div className="mb-12 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+        <div className="mb-12 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div className="rounded-2xl sm:rounded-3xl bg-lime-50/80 p-4 sm:p-6 shadow-sm border border-lime-200/50 flex flex-col justify-between">
             <div className="flex items-center justify-between sm:flex-col sm:items-start gap-2">
               <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-lime-100 text-lime-700 select-none">
@@ -322,7 +376,7 @@ const VendorDashboard: React.FC = () => {
               <h3 className="text-[10px] sm:text-[11px] font-black text-lime-800 uppercase tracking-widest leading-none">Gross Sales</h3>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-lime-950 mt-2">
-              M{totalSales}
+              M{displaySales}
             </p>
           </div>
           
@@ -331,29 +385,19 @@ const VendorDashboard: React.FC = () => {
               <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-blue-50 text-blue-600">
                 <Layers size={16} className="sm:w-5 sm:h-5" />
               </div>
-              <h3 className="text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Active Deals</h3>
+              <h3 className="text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Active Pitches</h3>
             </div>
-            <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">{deals.length}</p>
+            <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">{proposals.filter(p => p.status === 'pending').length}</p>
           </div>
-
+          
           <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
             <div className="flex items-center justify-between sm:flex-col sm:items-start gap-2">
               <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-50 text-brand-primary">
                 <Briefcase size={16} className="sm:w-5 sm:h-5" />
               </div>
-              <h3 className="text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Pitches Sent</h3>
+              <h3 className="text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Total Offers</h3>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">{proposals.length}</p>
-          </div>
-
-          <div className="rounded-2xl sm:rounded-3xl bg-white p-4 sm:p-6 shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex items-center justify-between sm:flex-col sm:items-start gap-2">
-              <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-amber-50 text-amber-600 font-bold">
-                <Star size={16} className="sm:w-5 sm:h-5" fill="currentColor" />
-              </div>
-              <h3 className="text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest leading-none">Trust Score</h3>
-            </div>
-            <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">4.9 <span className="text-xs font-bold text-slate-400">/ 5.0</span></p>
           </div>
         </div>
 
@@ -373,13 +417,7 @@ const VendorDashboard: React.FC = () => {
                   </p>
                 </div>
                 
-                {/* Refresh CTA */}
-                <button 
-                  onClick={loadStudentRequests}
-                  className="rounded-xl px-4 py-2 border border-slate-100 hover:bg-slate-55 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-100 active:scale-95"
-                >
-                  Sync Needs
-                </button>
+
               </div>
 
               {/* Feed Filters */}
@@ -497,36 +535,81 @@ const VendorDashboard: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {proposals.map(p => (
-                    <div key={p.id} className="p-5 rounded-3xl bg-slate-50 border border-slate-100">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Proposed on:</span>
-                          <h4 className="text-sm font-black text-slate-900 leading-tight">{p.requestTitle}</h4>
+                  {proposals.map(p => {
+                    const isAccepted = p.status === 'accepted';
+                    const isDeclined = p.status === 'declined';
+                    return (
+                      <div 
+                        key={p.id} 
+                        className={`p-5 rounded-3xl border transition-all duration-300 ${
+                          isAccepted 
+                            ? 'border-emerald-200 bg-emerald-50/20' 
+                            : isDeclined
+                              ? 'border-slate-100 bg-slate-50/40 opacity-70'
+                              : 'border-slate-100 bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Proposed on:</span>
+                            <h4 className="text-sm font-black text-slate-900 leading-tight">{p.requestTitle}</h4>
+                            <span className="text-[10px] font-semibold text-slate-500 block mt-0.5">
+                              For Student: {p.studentName || 'Campus Buyer'}
+                            </span>
+                          </div>
+                          <span className={`text-sm font-black font-mono px-2.5 py-1 rounded-xl border ${
+                            isAccepted 
+                              ? 'text-emerald-700 bg-emerald-100/50 border-emerald-200' 
+                              : isDeclined
+                                ? 'text-slate-500 bg-slate-100 border-slate-200'
+                                : 'text-emerald-700 bg-emerald-50 border-emerald-105'
+                          }`}>
+                            M{p.proposedPrice}
+                          </span>
                         </div>
-                        <span className="text-sm font-black text-emerald-700 font-mono bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-100">
-                          M{p.proposedPrice}
-                        </span>
-                      </div>
-                      
-                      <p className="text-xs text-slate-600 font-medium italic mt-2 bg-white/70 backdrop-blur-sm p-3 rounded-2xl border border-slate-150 leading-relaxed">
-                        "{p.message}"
-                      </p>
-
-                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-200/50">
-                        <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-orange-600">
-                          <Clock size={12} /> Pending Response
-                        </span>
                         
-                        <button
-                          onClick={() => handleCancelProposal(p.id)}
-                          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-red-500 select-none transition-all"
-                        >
-                          Cancel Offer
-                        </button>
+                        <p className="text-xs text-slate-600 font-medium italic mt-2 bg-white/75 backdrop-blur-sm p-3 rounded-2xl border border-slate-150 leading-relaxed">
+                          "{p.message}"
+                        </p>
+
+                        {isAccepted && (
+                          <div className="mt-3 rounded-2xl bg-emerald-100/30 p-4 text-xs border border-emerald-100/60 text-emerald-800">
+                            <span className="font-extrabold uppercase tracking-wider text-[9px] block text-emerald-600 mb-1">✓ Student Contact Decrypted</span>
+                            <div className="space-y-1 font-mono text-[11px]">
+                              <div><strong className="font-bold text-emerald-900">Student Name:</strong> {p.studentName || 'Lesotho Campus Student'}</div>
+                              <div><strong className="font-bold text-emerald-900">Hotline/Tel:</strong> {p.vendorPhone || '+266 5871 4432'}</div>
+                              <div className="mt-1.5 text-[10px] text-emerald-600 font-sans italic">Agreement formed! Connect with the student directly for quick delivery.</div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-200/50">
+                          {isAccepted ? (
+                            <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-lg">
+                              <CheckCircle size={10} className="shrink-0" /> Agreement Formed
+                            </span>
+                          ) : isDeclined ? (
+                            <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400 font-bold bg-slate-100 px-2 py-0.5 rounded-lg">
+                              <X size={10} className="shrink-0" /> Pitch Declined
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-lg animate-pulse">
+                              <Clock size={10} className="shrink-0" /> Pending Response
+                            </span>
+                          )}
+                          
+                          {!isAccepted && !isDeclined && (
+                            <button
+                              onClick={() => handleCancelProposal(p.id)}
+                              className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-red-500 select-none transition-all cursor-pointer"
+                            >
+                              Cancel Offer
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -540,12 +623,12 @@ const VendorDashboard: React.FC = () => {
               <div className="absolute top-0 right-0 h-40 w-40 rounded-full bg-brand-primary/10 blur-3xl"></div>
               
               <div className="flex items-center gap-3 mb-4">
-                <Store size={24} className="text-brand-primary" />
+                <Store size={24} className="text-brand-primary" strokeWidth={2.5} />
                 <h3 className="text-lg font-black tracking-tight">Active Micro-Store</h3>
               </div>
 
               <p className="text-xs leading-relaxed text-slate-400 mb-6 font-medium">
-                Your business, <strong className="text-white">{user?.displayName || 'Studio'}</strong>, is listed on the student store list with an active rating. Add campus locations to increase high-conversion student views.
+                Your business, <strong className="text-white">{user?.displayName || 'Studio'}</strong>, is listed on the student store list. Add campus locations to increase high-conversion student views.
               </p>
 
               <div className="space-y-2.5 border-t border-white/10 pt-4 text-xs font-mono">
@@ -563,6 +646,7 @@ const VendorDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
+
           </div>
 
         </div>

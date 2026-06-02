@@ -155,53 +155,46 @@ const StudentDashboard: React.FC = () => {
   const studentSchoolCode = getStudentSchoolCode(user?.school);
   const studentCampus = getCampusFromSchool(user?.school);
 
-  const syncWithServerDatabase = async (overrideRequests?: any[], overrideProposals?: any[]) => {
+  const syncWithServerDatabase = async () => {
     try {
-      const localRequestsRaw = localStorage.getItem('client_student_requests');
-      const localProposalsRaw = localStorage.getItem('client_shared_proposals');
-      
-      const requests = overrideRequests || (localRequestsRaw ? JSON.parse(localRequestsRaw) : []);
-      const proposalsList = overrideProposals || (localProposalsRaw ? JSON.parse(localProposalsRaw) : []);
+      const rRes = await dataApi.getRequests();
+      const pRes = await dataApi.getProposals();
 
-      const response = await dataApi.sync({
-        requests,
-        proposals: proposalsList
-      });
-
-      if (response && response.data) {
-        const serverRequests = response.data.requests || [];
-        const serverProposals = response.data.proposals || [];
-
-        // Merge requests, server-side is authority
-        const mergedRequests = [...requests];
-        serverRequests.forEach((sr: any) => {
-          const idx = mergedRequests.findIndex(r => r.id === sr.id);
-          if (idx === -1) {
-            mergedRequests.push(sr);
-          } else {
-            mergedRequests[idx] = { ...mergedRequests[idx], ...sr };
-          }
-        });
-
-        // Merge proposals
-        const mergedProposals = [...proposalsList];
-        serverProposals.forEach((sp: any) => {
-          const idx = mergedProposals.findIndex(p => p.id === sp.id);
-          if (idx === -1) {
-            mergedProposals.push(sp);
-          } else {
-            mergedProposals[idx] = { ...mergedProposals[idx], ...sp };
-          }
-        });
-
-        localStorage.setItem('client_student_requests', JSON.stringify(mergedRequests));
-        localStorage.setItem('client_shared_proposals', JSON.stringify(mergedProposals));
-
-        setStudentRequests(mergedRequests);
-        setProposals(mergedProposals);
+      let serverRequests = rRes.data;
+      if (!serverRequests) serverRequests = [];
+      if (!Array.isArray(serverRequests)) {
+        if (serverRequests && Array.isArray(serverRequests.requests)) {
+          serverRequests = serverRequests.requests;
+        } else if (serverRequests && Array.isArray(serverRequests.data)) {
+          serverRequests = serverRequests.data;
+        } else {
+          serverRequests = [];
+        }
       }
+
+      let serverProposals = pRes.data;
+      if (!serverProposals) serverProposals = [];
+      if (!Array.isArray(serverProposals)) {
+        if (serverProposals && Array.isArray(serverProposals.proposals)) {
+          serverProposals = serverProposals.proposals;
+        } else if (serverProposals && Array.isArray(serverProposals.offers)) {
+          serverProposals = serverProposals.offers;
+        } else if (serverProposals && Array.isArray(serverProposals.data)) {
+          serverProposals = serverProposals.data;
+        } else {
+          serverProposals = [];
+        }
+      }
+
+      localStorage.setItem('client_student_requests', JSON.stringify(serverRequests));
+      localStorage.setItem('client_shared_proposals', JSON.stringify(serverProposals));
+
+      setStudentRequests(serverRequests);
+      setProposals(serverProposals);
     } catch (err) {
-      console.warn("Real-time cloud database sync skipped, offline mode:", err);
+      console.warn("Real-time cloud database sync skipped, utilizing offline fallback:", err);
+      loadStudentRequests();
+      loadSharedProposals();
     }
   };
 
@@ -216,39 +209,50 @@ const StudentDashboard: React.FC = () => {
   const loadSharedProposals = () => {
     const saved = localStorage.getItem('client_shared_proposals');
     if (saved) {
-      setProposals(JSON.parse(saved));
-    } else {
-      const defaults = [
-        {
-          id: 'prop-fallback-l2-1',
-          requestId: 'req-l2',
-          requestTitle: 'HP Pavilion Laptop Charger (65W)',
-          studentName: user?.displayName || 'Thabo Mokoena',
-          proposedPrice: 380,
-          vendorName: 'Roma Tech Hub',
-          vendorPhone: '+266 5890 1234',
-          vendorRating: 4.9,
-          message: 'Greetings! I have the original 65W blue-tip replacement. I can deliver to your block on the Roma campus or you can pick it up at our Roma Tech Hub studio.',
-          status: 'pending',
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: 'prop-fallback-l1-1',
-          requestId: 'req-l1',
-          requestTitle: 'Macroeconomics 101 Textbook',
-          studentName: user?.displayName || 'Mpuleng Tseoa',
-          proposedPrice: 300,
-          vendorName: 'CAS Books & Supplies',
-          vendorPhone: '+266 5971 8820',
-          vendorRating: 4.9,
-          message: 'Hi, I have a very clean, unmarked copy of this Macroeconomics textbook. Ready to bring it to your room in Maseru campus or meet near CAS.',
-          status: 'pending',
-          timestamp: new Date().toISOString()
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setProposals(parsed);
+          return;
+        } else if (parsed && Array.isArray(parsed.proposals)) {
+          setProposals(parsed.proposals);
+          return;
         }
-      ];
-      localStorage.setItem('client_shared_proposals', JSON.stringify(defaults));
-      setProposals(defaults);
+      } catch (e) {
+        console.warn("Error parsing saved proposals:", e);
+      }
     }
+    
+    const defaults = [
+      {
+        id: 'prop-fallback-l2-1',
+        requestId: 'req-l2',
+        requestTitle: 'HP Pavilion Laptop Charger (65W)',
+        studentName: user?.displayName || 'Thabo Mokoena',
+        proposedPrice: 380,
+        vendorName: 'Roma Tech Hub',
+        vendorPhone: '+266 5890 1234',
+        vendorRating: 4.9,
+        message: 'Greetings! I have the original 65W blue-tip replacement. I can deliver to your block on the Roma campus or you can pick it up at our Roma Tech Hub studio.',
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      },
+      {
+        id: 'prop-fallback-l1-1',
+        requestId: 'req-l1',
+        requestTitle: 'Macroeconomics 101 Textbook',
+        studentName: user?.displayName || 'Mpuleng Tseoa',
+        proposedPrice: 300,
+        vendorName: 'CAS Books & Supplies',
+        vendorPhone: '+266 5971 8820',
+        vendorRating: 4.9,
+        message: 'Hi, I have a very clean, unmarked copy of this Macroeconomics textbook. Ready to bring it to your room in Maseru campus or meet near CAS.',
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      }
+    ];
+    localStorage.setItem('client_shared_proposals', JSON.stringify(defaults));
+    setProposals(defaults);
   };
 
   const handlePersistProposals = (updatedProposals: any[]) => {
@@ -256,32 +260,34 @@ const StudentDashboard: React.FC = () => {
     localStorage.setItem('client_shared_proposals', JSON.stringify(updatedProposals));
   };
 
-  const handleAcceptOffer = (offer: any) => {
-    const updatedProposals = proposals.map((p: any) => {
-      if (p.requestId === offer.requestId) {
-        if (p.id === offer.id) {
-          return { ...p, status: 'accepted' };
-        } else {
-          return { ...p, status: 'declined' };
+  const handleAcceptOffer = async (offer: any) => {
+    try {
+      await dataApi.editProposal(offer.id, { ...offer, status: 'accepted' });
+      await syncWithServerDatabase();
+    } catch (err) {
+      console.error("Failed to accept proposal on backend, falling back locally:", err);
+      const updatedProposals = proposals.map((p: any) => {
+        if (p.requestId === offer.requestId) {
+          if (p.id === offer.id) {
+            return { ...p, status: 'accepted' };
+          } else {
+            return { ...p, status: 'declined' };
+          }
         }
-      }
-      return p;
-    });
+        return p;
+      });
 
-    handlePersistProposals(updatedProposals);
+      handlePersistProposals(updatedProposals);
 
-    // Update request state status to 'resolved' and remove/comment out urgency setting
-    const updatedRequests = studentRequests.map((r: any) => {
-      if (r.id === offer.requestId) {
-        return { ...r, status: 'resolved' };
-      }
-      return r;
-    });
-    setStudentRequests(updatedRequests);
-    localStorage.setItem('client_student_requests', JSON.stringify(updatedRequests));
-
-    // Force post sync to server
-    syncWithServerDatabase(updatedRequests, updatedProposals);
+      const updatedRequests = studentRequests.map((r: any) => {
+        if (r.id === offer.requestId) {
+          return { ...r, status: 'resolved' };
+        }
+        return r;
+      });
+      setStudentRequests(updatedRequests);
+      localStorage.setItem('client_student_requests', JSON.stringify(updatedRequests));
+    }
 
     // Show beautiful success handshake modal
     setSelectedOfferForAccept(offer);
@@ -290,10 +296,23 @@ const StudentDashboard: React.FC = () => {
   };
 
   const loadStudentRequests = () => {
-    const local = localStorage.getItem('client_student_requests');
-    let parsedLocal = local ? JSON.parse(local) : [];
-
-    setStudentRequests(parsedLocal);
+    try {
+      const local = localStorage.getItem('client_student_requests');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          setStudentRequests(parsed);
+        } else if (parsed && Array.isArray(parsed.requests)) {
+          setStudentRequests(parsed.requests);
+        } else {
+          setStudentRequests([]);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn("Failed to parse client student requests:", e);
+    }
+    setStudentRequests([]);
   };
 
   const handleToggleRequestStatus = (requestId: string) => {
@@ -352,7 +371,7 @@ const StudentDashboard: React.FC = () => {
     }
 
     setEditingRequest(null);
-    syncWithServerDatabase(updated);
+    syncWithServerDatabase();
   };
 
   const handleDeleteRequest = async (requestId: string) => {
@@ -367,7 +386,7 @@ const StudentDashboard: React.FC = () => {
       console.warn('Delete push error:', err);
     }
 
-    syncWithServerDatabase(updated);
+    syncWithServerDatabase();
   };
 
   const loadVendors = async () => {
@@ -417,8 +436,10 @@ const StudentDashboard: React.FC = () => {
     return b.rating - a.rating;
   });
 
-  // Filter requests based on status tabs
+  // Filter requests based on status tabs and owned by this student
   const filteredRequests = studentRequests.filter(req => {
+    const isMine = req && (req.studentUid === user?.uid || (user?.displayName && req.student === user.displayName));
+    if (!isMine) return false;
     if (requestsFilter === 'active') return req.status !== 'resolved';
     if (requestsFilter === 'resolved') return req.status === 'resolved';
     return true;
@@ -585,7 +606,7 @@ const StudentDashboard: React.FC = () => {
                               <div key={pitch.id} className="bg-white rounded-lg p-2 sm:p-2.5 border border-slate-100/60 flex items-center justify-between gap-1 shadow-sm">
                                 <div className="min-w-0">
                                   <p className="font-extrabold text-slate-800 text-[10px] sm:text-[11px] truncate flex items-center gap-1">
-                                    {pitch.vendorName} <span className="text-amber-500 font-bold text-[8px] sm:text-[9px] shrink-0">★ {pitch.vendorRating || '4.9'}</span>
+                                    {pitch.vendorName}
                                   </p>
                                   <p className="text-[9px] sm:text-[10px] text-slate-400 font-black font-mono">Quotes M{pitch.proposedPrice}</p>
                                 </div>
@@ -721,7 +742,7 @@ const StudentDashboard: React.FC = () => {
                         )}
                         {vendor.workedWith && (
                           <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-950 px-2 py-0.5 text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-yellow-300">
-                            ★ Trusted ({vendor.dealsCount})
+                            Trusted ({vendor.dealsCount})
                           </span>
                         )}
                       </div>
